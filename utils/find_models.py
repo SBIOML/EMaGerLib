@@ -1,5 +1,8 @@
 def find_models(base_path: str, session: str) -> list[str]:
     import os
+    
+    if not os.path.exists(os.path.join(base_path, session)):
+        return []
 
     model_folder = os.path.join(base_path, session)
     model_files = [f for f in os.listdir(model_folder) if f.endswith('.pth')]

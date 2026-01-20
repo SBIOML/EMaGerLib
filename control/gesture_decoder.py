@@ -1,6 +1,6 @@
 from control.constants import *
 import utils.gestures_json as gj
-from config import *
+from config_emager import *
 from libemg.gui import GUI
 
 def log(message, mode=Logger.INFO):
@@ -12,8 +12,8 @@ OPEN_FIGER_POS = 0
 CLOSE_FIGER_POS = 1000
 HALF_OPEN_FIGER_POS = 500
 FRONT_ROTATION_POS = 0
-HALF_ROTATION_POS = 0
-SIDE_ROTATION_POS = 0
+HALF_ROTATION_POS = -500
+SIDE_ROTATION_POS = -1000
 
 try:
     gestures_dict = gj.get_gestures_dict(MEDIA_PATH)

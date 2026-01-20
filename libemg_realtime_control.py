@@ -5,7 +5,7 @@ from control.interface_control import InterfaceControl
 
 from multiprocessing.connection import Connection
 from multiprocessing import Lock, Process, Pipe
-from config import *
+from config_emager import *
 import time
 from collections import deque, Counter
 from statistics import mean
@@ -30,6 +30,9 @@ def run_controller_process(conn: Connection=None):
         # Main loop to read input from stdin
         print("Communicator waiting for data...")
         recent = deque(maxlen=SMOOTH_WINDOW)
+        last_gesture = None
+        last_send_time = 0.0
+        heartbeat_interval = HEARTBEAT_INTERVAL if 'HEARTBEAT_INTERVAL' in globals() else None
 
         while True:
             # Read input from stdin
@@ -39,12 +42,13 @@ def run_controller_process(conn: Connection=None):
                 # Drain the pipe buffer and collect any pending predictions
                 input_data = None
                 any_received = False
+                # Drain all available messages and keep the last prediction; update recent
                 while conn.poll():  # Check if data is available without blocking
                     try:
                         d = conn.recv()
                         any_received = True
                         input_data = d  # keep last for backwards-compat
-                        timestamp = input_data["timestamp"]
+                        timestamp = input_data.get("timestamp")
                         # extract numeric prediction if present and append to recent
                         try:
                             p = int(d.get("prediction", 0))
@@ -56,37 +60,48 @@ def run_controller_process(conn: Connection=None):
                         print("Connection closed")
                         return
 
-                # If no data available, wait briefly and continue
-                if not any_received:
-                    time.sleep(POLL_SLEEP_DELAY)  # sleep to prevent busy waiting
-                    continue
+                now = time.perf_counter()
 
-                # Compute smoothed prediction (if smoothing window > 1 and buffer has data)
-                if len(recent) == 0:
-                    # nothing to do, continue
-                    continue
-                if SMOOTH_WINDOW > 1:
-                    if SMOOTH_METHOD == 'mode':
-                        counts = Counter(recent)
-                        most_common = counts.most_common()
-                        top_count = most_common[0][1]
-                        candidates = [val for val, cnt in most_common if cnt == top_count]
-                        # if tie, pick the most recent candidate
-                        for v in reversed(recent):
-                            if v in candidates:
-                                smoothed_pred = v
-                                break
-                    elif SMOOTH_METHOD == 'mean':
-                        smoothed_pred = int(round(mean(recent)))
+                # If we received new data, compute smoothed prediction and create input_data
+                if any_received and len(recent) > 0:
+                    if SMOOTH_WINDOW > 1:
+                        if SMOOTH_METHOD == 'mode':
+                            counts = Counter(recent)
+                            most_common = counts.most_common()
+                            top_count = most_common[0][1]
+                            candidates = [val for val, cnt in most_common if cnt == top_count]
+                            # if tie, pick the most recent candidate
+                            for v in reversed(recent):
+                                if v in candidates:
+                                    smoothed_pred = v
+                                    break
+                        elif SMOOTH_METHOD == 'mean':
+                            smoothed_pred = int(round(mean(recent)))
+                        else:
+                            smoothed_pred = recent[-1]
                     else:
                         smoothed_pred = recent[-1]
-                else:
-                    smoothed_pred = recent[-1]
 
-                # reconstruct input_data as a dict similar to what the GUI sent
-                input_data = {
-                    "prediction": smoothed_pred, "timestamp": timestamp
-                }
+                    input_data = {
+                        "prediction": smoothed_pred,
+                        "timestamp": timestamp
+                    }
+
+                # If no new data was received, optionally send a heartbeat (repeat last gesture)
+                if not any_received:
+                    # send heartbeat only if user enabled it and we have a last_gesture
+                    if heartbeat_interval and last_gesture is not None:
+                        if (now - last_send_time) >= heartbeat_interval:
+                            try:
+                                comm_controller.send_gesture(last_gesture)
+                                last_send_time = now
+                                print(f"Heartbeat: re-sent gesture [{last_gesture}]")
+                            except Exception as e:
+                                print(f"Error sending heartbeat gesture: {e}")
+                    # small sleep to avoid busy waiting but keep responsiveness
+                    time.sleep(POLL_SLEEP_DELAY)
+                    # continue to next iteration (no new prediction to process)
+                    continue
 
             # Exit the loop if no more input is received
             if input_data is None or input_data == "":
@@ -112,7 +127,12 @@ def run_controller_process(conn: Connection=None):
                 continue
 
             # Send the gesture to the hand
-            comm_controller.send_gesture(gesture)
+            try:
+                comm_controller.send_gesture(gesture)
+                last_gesture = gesture
+                last_send_time = time.perf_counter()
+            except Exception as e:
+                print(f"Error sending gesture: {e}")
             print("="*50)
             
     except Exception as e:

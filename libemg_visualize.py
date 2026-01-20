@@ -4,7 +4,7 @@ if __name__ == "__main__":
     from libemg.filtering import Filter
     import time
     # from utils.find_usb import virtual_port
-    from config import *
+    from config_emager import *
 
 
     # Create data handler and streamer

@@ -3,7 +3,7 @@ from control.interface_control import InterfaceControl
 import time
 
 from utils.utils import print_packet
-from config import *
+from config_emager import *
 
 def test_hand(hand_type, **kwargs):
     print(f"\n=== Testing {hand_type.capitalize()} Hand ===")

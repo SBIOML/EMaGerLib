@@ -8,3 +8,4 @@ torch
 lightning
 brevitas
 libemg==2.0.0
+ability-hand

@@ -17,7 +17,7 @@ import torch
 import numpy as np
 from multiprocessing import Lock
 from multiprocessing.connection import Connection
-from config import *
+from config_emager import *
 
 eutils.set_logging()
 

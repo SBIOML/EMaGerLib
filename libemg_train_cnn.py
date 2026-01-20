@@ -9,7 +9,7 @@ import models.models as etm
 import numpy as np
 import datetime
 import matplotlib.pyplot as plt
-from config import *
+from config_emager import *
 
 
 def prepare_data(dataset_folder):

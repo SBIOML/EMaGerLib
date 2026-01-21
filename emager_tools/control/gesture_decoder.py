@@ -1,7 +1,9 @@
-from control.constants import *
-import utils.gestures_json as gj
-from config_emager import *
+from src.control.constants import *
+import src.utils.gestures_json as gj
 from libemg.gui import GUI
+
+from src.configs.config_main import *
+config = Config()
 
 def log(message, mode=Logger.INFO):
     print(message)
@@ -11,15 +13,15 @@ NUTRAL_FINGER_POS = 250
 OPEN_FIGER_POS = 0
 CLOSE_FIGER_POS = 1000
 HALF_OPEN_FIGER_POS = 500
-FRONT_ROTATION_POS = 0
+FRONT_ROTATION_POS = -1000
 HALF_ROTATION_POS = -500
-SIDE_ROTATION_POS = -1000
+SIDE_ROTATION_POS = 0
 
 try:
-    gestures_dict = gj.get_gestures_dict(MEDIA_PATH)
+    gestures_dict = gj.get_gestures_dict(config.MEDIA_PATH)
 except FileNotFoundError:
-    GUI.download_gestures(MEDIA_PATH)
-    gestures_dict = gj.get_gestures_dict(MEDIA_PATH)
+    GUI.download_gestures(config.MEDIA_PATH)
+    gestures_dict = gj.get_gestures_dict(config.MEDIA_PATH)
 
 def decode_gesture(gesture):
     if isinstance(gesture, int):

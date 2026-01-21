@@ -33,7 +33,7 @@ HEARTBEAT_INTERVAL = 0.1
 BASE_PATH = "./Datasets/"
 SESSION = "D1"
 
-import utils.find_models as futils
+import emager_tools.utils.find_models as futils
 # MODEL_NAME = "libemg_torch_cnn_D0_974_25-10-20_15h03.pth"
 MODEL_NAME = futils.find_last_model(BASE_PATH, SESSION)
 

@@ -1,5 +1,12 @@
 
 import threading
+import time
+import torch
+import numpy as np
+from multiprocessing import Lock
+from multiprocessing.connection import Connection
+from pathlib import Path
+
 from libemg.data_handler import OnlineDataHandler
 from libemg.emg_predictor import EMGClassifier, OnlineEMGClassifier
 from libemg.feature_extractor import FeatureExtractor
@@ -7,17 +14,14 @@ from libemg.streamers import emager_streamer
 from libemg.filtering import Filter
 from libemg.environments.controllers import ClassifierController
 
-import models.models as etm
-import utils.utils as eutils
-from visualization.realtime_gui import RealTimeGestureUi
-import utils.gestures_json as gjutils
+import emager_tools.models.models as etm
+import emager_tools.utils.utils as eutils
+from emager_tools.visualization.realtime_gui import RealTimeGestureUi
+import emager_tools.utils.gestures_json as gjutils
+from emager_tools.config.loader import load_py_config
 
-import time
-import torch
-import numpy as np
-from multiprocessing import Lock
-from multiprocessing.connection import Connection
-from config_emager import *
+# Load configuration
+cfg = load_py_config(Path(__file__).parent.parent / "config_examples" / "base_config_example.py")
 
 eutils.set_logging()
 
@@ -33,9 +37,9 @@ def update_labels_process(stop_event:threading.Event, gui:RealTimeGestureUi, con
             "timestamp": time.time()
         }
     '''
-    gestures_dict = gjutils.get_gestures_dict(MEDIA_PATH)
-    images = gjutils.get_images_list(MEDIA_PATH)
-    ctrl = ClassifierController('predictions', NUM_CLASSES)
+    gestures_dict = gjutils.get_gestures_dict(cfg.MEDIA_PATH)
+    images = gjutils.get_images_list(cfg.MEDIA_PATH)
+    ctrl = ClassifierController('predictions', cfg.NUM_CLASSES)
     
     # Track last prediction to avoid sending duplicates
     last_prediction = None
@@ -89,7 +93,7 @@ def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.0
     print(f"Streamer created: process: {p}, smi : {smi}")
     odh = OnlineDataHandler(shared_memory_items=smi)
 
-    filter = Filter(SAMPLING)
+    filter = Filter(cfg.SAMPLING)
     notch_filter_dictionary={ "name": "notch", "cutoff": 60, "bandwidth": 3}
     filter.install_filters(notch_filter_dictionary)
     bandpass_filter_dictionary={ "name":"bandpass", "cutoff": [20, 450], "order": 4}
@@ -103,27 +107,27 @@ def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.0
     print("Feature group: ", fg)
 
     # Verify model loading and state dict compatibility
-    model = etm.EmagerCNN((4, 16), NUM_CLASSES, -1)
-    print("Loading model from: ", MODEL_PATH)
+    model = etm.EmagerCNN((4, 16), cfg.NUM_CLASSES, -1)
+    print("Loading model from: ", cfg.cfg.MODEL_PATH)
     try:
-        model.load_state_dict(torch.load(MODEL_PATH))
+        model.load_state_dict(torch.load(cfg.MODEL_PATH))
         model.eval()
     except RuntimeError as e:
         print(f"Error loading model: {e}")
 
     classi = EMGClassifier(model)
-    classi.add_majority_vote(MAJORITY_VOTE)
+    classi.add_majority_vote(cfg.MAJORITY_VOTE)
 
     # Ensure OnlineEMGClassifier is correctly set up for data handling and inference
     smm_items=[
             ["classifier_output", (100,4), np.double, Lock()], #timestamp, class prediction, confidence, velocity
             ['classifier_input', (100, 1 + 64), np.double, Lock()], # timestamp <- features ->
         ]
-    oclassi = OnlineEMGClassifier(classi, WINDOW_SIZE, WINDOW_INCREMENT, odh, fg, std_out=False, smm=True, smm_items=smm_items)
+    oclassi = OnlineEMGClassifier(classi, cfg.WINDOW_SIZE, cfg.WINDOW_INCREMENT, odh, fg, std_out=False, smm=True, smm_items=smm_items)
 
 
     # Create GUI
-    files = gjutils.get_images_list(MEDIA_PATH)
+    files = gjutils.get_images_list(cfg.MEDIA_PATH)
     print("Files: ", files)
     print("Creating GUI...")
     gui = RealTimeGestureUi(files)
@@ -156,5 +160,8 @@ def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.0
         print("Exiting")
 
 
-if __name__ == "__main__":
+def main():
     predicator(use_gui=True, conn=None, delay=0.01, timeout_delay=0.5)
+
+if __name__ == "__main__":
+    main()

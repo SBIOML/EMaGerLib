@@ -5,7 +5,7 @@ from PyQt6.QtGui import QPixmap
 import os
 import sys
 import threading
-import utils.gestures_json as gjutils
+import src.utils.gestures_json as gjutils
 
 class RealTimeGestureUi(QWidget):
     labelChanged = pyqtSignal(int)  # Define a signal for changing labels

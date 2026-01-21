@@ -282,7 +282,7 @@ def find_port(vid, pid):
     raise ValueError("Device not found")
 
 
-if __name__ == '__main__':
+def main():
     print('start')
     PORT = find_port(0x04b4, 0xf155)
     sensor = HDSensor(PORT, 1500000)
@@ -292,3 +292,6 @@ if __name__ == '__main__':
     refresh_rate = 30  # 30Hz refresh rate
     oscilloscope = RealTimeOscilloscope(num_signals, data_points, refresh_rate, sensor)
     oscilloscope.run()
+
+if __name__ == '__main__':
+    main()

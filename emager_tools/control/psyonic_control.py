@@ -1,7 +1,7 @@
-from control.abstract_hand_control import HandInterface
-from control.serial_com import SerialCommunication
-from control.gesture_decoder import decode_gesture
-from utils.utils import print_packet
+from src.control.abstract_hand_control import HandInterface
+from src.control.serial_com import SerialCommunication
+from src.control.gesture_decoder import decode_gesture
+from src.utils.utils import print_packet
 import serial
 import time
 import struct
@@ -96,7 +96,7 @@ class PsyonicHandControl(HandInterface):
             int(ring_pos / 10),
             int(little_pos / 10),
             int(thumb_pos / 10),
-            int(-thumb_rotation_pos / 10)
+            int(thumb_rotation_pos / 10)
         ]
         
         # Send all finger positions in one command

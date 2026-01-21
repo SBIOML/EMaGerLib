@@ -1,16 +1,21 @@
-if __name__ == "__main__":
-    from libemg.data_handler import OnlineDataHandler
-    from libemg.datasets import OneSubjectMyoDataset
-    from libemg.gui import GUI
-    from libemg.streamers import emager_streamer
-    import time
-    import os
-    from config_emager import *
-    import shutil
-    import sys
-    from datetime import datetime
-    
+import time
+import os
+import shutil
+import sys
+from datetime import datetime
+from pathlib import Path
 
+from libemg.data_handler import OnlineDataHandler
+from libemg.datasets import OneSubjectMyoDataset
+from libemg.gui import GUI
+from libemg.streamers import emager_streamer
+from emager_tools.config.loader import load_py_config
+
+# Load configuration
+cfg = load_py_config(Path(__file__).parent.parent / "config_examples" / "base_config_example.py")
+
+
+def main():
     # Create data handler and streamer
     p, smi = emager_streamer()
     print(f"Streamer created: process: {p}, smi : {smi}")
@@ -19,18 +24,18 @@ if __name__ == "__main__":
 
     args = {
         "online_data_handler": odh,
-        "media_folder": MEDIA_PATH,
-        "data_folder": DATAFOLDER,
-        "num_reps": NUM_REPS,
-        "rep_time": REP_TIME,
-        "rest_time": REST_TIME,
+        "media_folder": cfg.MEDIA_PATH,
+        "data_folder": cfg.DATAFOLDER,
+        "num_reps": cfg.NUM_REPS,
+        "rep_time": cfg.REP_TIME,
+        "rest_time": cfg.REST_TIME,
         "auto_advance": True
     }
     
     gui = GUI(odh, args=args, debug=False, width=900, height=800)
-    gui.download_gestures(CLASSES, MEDIA_PATH, download_gifs=False)
+    gui.download_gestures(cfg.CLASSES, cfg.MEDIA_PATH, download_gifs=False)
 
-    dataset_path = os.path.abspath(DATAFOLDER + "/")
+    dataset_path = os.path.abspath(cfg.DATAFOLDER + "/")
 
     # Ensure folder exists
     if not os.path.exists(dataset_path):
@@ -63,14 +68,14 @@ if __name__ == "__main__":
                     candidate = f"{new_path}_{i}"
                     i += 1
                 os.makedirs(candidate, exist_ok=True)
-                DATAFOLDER = candidate
-                args["data_folder"] = DATAFOLDER
+                cfg.DATAFOLDER = candidate
+                args["data_folder"] = cfg.DATAFOLDER
                 # Try to update GUI-held args if possible
                 try:
                     setattr(gui, "args", args)
                 except Exception:
                     pass
-                print(f"Dataset directory renamed to '{DATAFOLDER}'. Using that path for this run.")
+                print(f"Dataset directory renamed to '{cfg.DATAFOLDER}'. Using that path for this run.")
                 break
             elif choice == "c" or choice == "cancel":
                 print("Operation cancelled. Exiting.")
@@ -83,4 +88,4 @@ if __name__ == "__main__":
     
     gui.start_gui()
 
-    print("Data saved in : " + DATAFOLDER)
+    print("Data saved in : " + cfg.DATAFOLDER)

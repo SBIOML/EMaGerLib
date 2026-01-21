@@ -1,6 +1,6 @@
-from control.zeus_control import ZeusControl
-from control.smart_hand_control import SmartHandControl
-from control.psyonic_control import PsyonicHandControl
+# from control.zeus_control import ZeusControl
+# from control.smart_hand_control import SmartHandControl
+from src.control.psyonic_control import PsyonicHandControl
 
 class InterfaceControl:
     def __init__(self, hand_type, **kwargs):
@@ -19,11 +19,11 @@ class InterfaceControl:
 
     def initialize_hand(self):
         """Initialize the appropriate hand controller based on the hand type."""
-        if self.hand_type == "zeus":
-            self.hand = ZeusControl(**self.kwargs)
-        elif self.hand_type == "smart":
-            self.hand = SmartHandControl(**self.kwargs)
-        elif self.hand_type == "psyonic":
+        # if self.hand_type == "zeus":
+        #     self.hand = ZeusControl(**self.kwargs)
+        # elif self.hand_type == "smart":
+        #     self.hand = SmartHandControl(**self.kwargs)
+        if self.hand_type == "psyonic":
             self.hand = PsyonicHandControl(**self.kwargs)
         else:
             raise ValueError(f"Unsupported hand type: {self.hand_type}")

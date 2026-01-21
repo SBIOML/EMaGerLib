@@ -1,14 +1,16 @@
 print("Loading hand control test...")
 # from control.interface_control import InterfaceControl
 import time
-
-from control.gesture_decoder import decode_gesture
-from utils.utils import print_packet
-from config_emager import *
-
 from math import pi, sin
-
+from pathlib import Path
 from ah_wrapper import AHSerialClient
+
+from emager_tools.control.gesture_decoder import decode_gesture
+from emager_tools.utils.utils import print_packet
+from emager_tools.config.loader import load_py_config
+
+# Load configuration
+cfg = load_py_config(Path(__file__).parent.parent / "config_examples" / "base_config_example.py")
 
 
 def main():
@@ -26,7 +28,7 @@ def main():
         pos = [30, 30, 30, 30, 30, -30]
         
         # gestures = ["Peace", "Hand_Close", "Hand_Open", "OK"]
-        gestures = CLASSES  # Using gesture indices from config
+        gestures = cfg.CLASSES  # Using gesture indices from config
         last_time = time.time()
         gesture_id = 0
         time_per_gesture = 1  # seconds

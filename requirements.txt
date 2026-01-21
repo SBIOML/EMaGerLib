@@ -1,11 +1,17 @@
-numpy
-scipy
-pyqt6
-pyqtgraph
-bleak
-pyserial
+libemg
+# git+https://github.com/Michiboi29/libemg-fork.git@multi_devices#egg=libemg
+# -e "C:\GIT\libemg-fork"
 torch
 lightning
 brevitas
-libemg==2.0.0
+numpy
+scipy
+matplotlib
+pandas
+scikit-learn
+pyserial
+pyqt5
+pyqt6
+pyqtgraph
+PyOpenGL #optimize visualization
 ability-hand

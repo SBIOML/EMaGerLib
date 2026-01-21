@@ -1,20 +1,24 @@
-import utils.utils as eutils
-import utils.gestures_json as gjutils
-from libemg_realtime_prediction import predicator
-from control.interface_control import InterfaceControl
-
 from multiprocessing.connection import Connection
 from multiprocessing import Lock, Process, Pipe
-from config_emager import *
 import time
 from collections import deque, Counter
 from statistics import mean
+from pathlib import Path
+
+from examples.realtime.realtime_prediction import predicator
+import emager_tools.utils.utils as eutils
+import emager_tools.utils.gestures_json as gjutils
+from emager_tools.control.interface_control import InterfaceControl
+from emager_tools.config.loader import load_py_config
+
+# Load configuration
+cfg = load_py_config(Path(__file__).parent.parent / "config_examples" / "base_config_example.py")
 
 eutils.set_logging()
 
 # PREDICTOR
 def run_predicator_process(conn: Connection=None):
-    predicator(use_gui=USE_GUI, conn=conn, delay=PREDICTOR_DELAY, timeout_delay=PREDICTOR_TIMEOUT_DELAY)
+    predicator(use_gui=cfg.USE_GUI, conn=conn, delay=cfg.PREDICTOR_DELAY, timeout_delay=cfg.PREDICTOR_TIMEOUT_DELAY)
 
 
 # COMMUNICATOR
@@ -24,15 +28,15 @@ def run_controller_process(conn: Connection=None):
         comm_controller = InterfaceControl(hand_type="psyonic")
         comm_controller.connect()
         
-        gestures_dict = gjutils.get_gestures_dict(MEDIA_PATH)
-        images = gjutils.get_images_list(MEDIA_PATH)
+        gestures_dict = gjutils.get_gestures_dict(cfg.MEDIA_PATH)
+        images = gjutils.get_images_list(cfg.MEDIA_PATH)
         
         # Main loop to read input from stdin
         print("Communicator waiting for data...")
-        recent = deque(maxlen=SMOOTH_WINDOW)
+        recent = deque(maxlen=cfg.SMOOTH_WINDOW)
         last_gesture = None
         last_send_time = 0.0
-        heartbeat_interval = HEARTBEAT_INTERVAL if 'HEARTBEAT_INTERVAL' in globals() else None
+        heartbeat_interval = cfg.HEARTBEAT_INTERVAL
 
         while True:
             # Read input from stdin
@@ -64,8 +68,8 @@ def run_controller_process(conn: Connection=None):
 
                 # If we received new data, compute smoothed prediction and create input_data
                 if any_received and len(recent) > 0:
-                    if SMOOTH_WINDOW > 1:
-                        if SMOOTH_METHOD == 'mode':
+                    if cfg.SMOOTH_WINDOW > 1:
+                        if cfg.SMOOTH_METHOD == 'mode':
                             counts = Counter(recent)
                             most_common = counts.most_common()
                             top_count = most_common[0][1]
@@ -75,7 +79,7 @@ def run_controller_process(conn: Connection=None):
                                 if v in candidates:
                                     smoothed_pred = v
                                     break
-                        elif SMOOTH_METHOD == 'mean':
+                        elif cfg.SMOOTH_METHOD == 'mean':
                             smoothed_pred = int(round(mean(recent)))
                         else:
                             smoothed_pred = recent[-1]
@@ -99,7 +103,7 @@ def run_controller_process(conn: Connection=None):
                             except Exception as e:
                                 print(f"Error sending heartbeat gesture: {e}")
                     # small sleep to avoid busy waiting but keep responsiveness
-                    time.sleep(POLL_SLEEP_DELAY)
+                    time.sleep(cfg.POLL_SLEEP_DELAY)
                     # continue to next iteration (no new prediction to process)
                     continue
 
@@ -116,7 +120,7 @@ def run_controller_process(conn: Connection=None):
             try:
                 input_pred = int(input_data["prediction"])
                 # timestamp = input_data["timestamp"]
-                if int(input_pred) not in range(NUM_CLASSES): 
+                if int(input_pred) not in range(cfg.NUM_CLASSES): 
                     input_pred = 0
                 gesture = gjutils.get_label_from_index(input_pred, images, gestures_dict)
 
@@ -151,6 +155,33 @@ def run_process(target, conn: Connection):
         print(f"An error occurred in a subprocess: {e}")
     finally:
         conn.close()
+
+def main():
+    """
+    Main entry point for realtime control.
+    """
+    from multiprocessing import Process, Pipe
+    
+    # Create pipes for communication
+    conn_p, conn_c = Pipe()
+    conn_rp, conn_rc = Pipe()
+    
+    # Start processes
+    prediction_process = Process(target=predicator, args=(True, conn_p))
+    communicator_process = Process(target=communicator, args=(conn_c,))
+    
+    try:
+        prediction_process.start()
+        communicator_process.start()
+        
+        prediction_process.join()
+        communicator_process.join()
+    except KeyboardInterrupt:
+        print("\nReceived keyboard interrupt, shutting down...")
+        prediction_process.terminate()
+        communicator_process.terminate()
+        prediction_process.join()
+        communicator_process.join()
 
 if __name__ == "__main__":
     try:

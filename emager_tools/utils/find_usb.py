@@ -16,3 +16,6 @@ def find_psoc():
 
 def find_pico():
     return find_port(0x2e8a, 0x0005)
+
+def find_nrf_base_station():
+    return find_port(12259, 256)

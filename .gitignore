@@ -3,6 +3,10 @@
 lightning_logs/
 media-test/
 Datasets/
+TODO.txt
+
+# VS Code
+.vscode/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -46,11 +46,12 @@ local = [
 ]
 dev = [
     # Add developer dependencies here
+    "unittest",
 ]
 
 [project.scripts]
 # Data collection
-emager-screen-training = "examples.data_collection.screen_guided_trainning:main"
+emager-sgt = "examples.data_collection.screen_guided_trainning:main"
 
 # Hand control
 emager-test-hand = "examples.hand_control.test_hand_control:main"
@@ -68,8 +69,11 @@ emager-train-cnn = "examples.training.train_cnn:main"
 emager-visualize-libemg = "examples.visualisation.libemg_visualize:main"
 emager-live-64ch = "examples.visualisation.live_64_channel:main"
 
+# Tests
+emager-run-tests = "tests.run_all_tests:main"
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["emager_tools*", "examples*"]
-exclude = ["tests*", "configs*", "config_examples*", "lightning_logs*"]
+include = ["emager_tools*", "examples*", "tests*"]
+exclude = ["configs*", "config_examples*", "lightning_logs*"]
 

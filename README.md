@@ -237,11 +237,22 @@ The following are automatically computed and do not need to be defined, but can 
 
 ## Testing
 
-Run the test suite:
+Run the complete test suite:
 
 ```bash
-python tests/test_config.py
+# Using console command (recommended)
+emager-run-tests
+
+# Or using direct Python execution
+python tests/run_all_tests.py
 ```
+
+The test suite includes:
+- **Configuration System**: Loading/saving configs (Python, JSON, YAML)
+- **Utility Functions**: Majority voting, transform decimation, packet printing
+- **Model Finding**: Discovering and sorting model files
+- **Constants**: Gesture and finger definitions
+- **Gesture JSON**: Image and gesture dictionary utilities
 
 Test individual components:
 
@@ -270,7 +281,7 @@ After installing with `pip install -e .`, the following commands are available:
 
 | Command | Description | Python Alternative |
 |---------|-------------|-------------------|
-| `emager-screen-training` | Screen-guided data collection | `python examples/data_collection/screen_guided_trainning.py` |
+| `emager-sgt` | Screen-guided data collection | `python examples/data_collection/screen_guided_trainning.py` |
 | `emager-test-hand` | Test hand control interface | `python examples/hand_control/test_hand_control.py` |
 | `emager-test-wave` | Test hand wave gestures | `python examples/hand_control/test_hand_wave.py` |
 | `emager-test-psyonic` | Test Psyonic hand | `python examples/hand_control/test_psyonic_hand.py` |
@@ -279,6 +290,7 @@ After installing with `pip install -e .`, the following commands are available:
 | `emager-train-cnn` | Train CNN model | `python examples/training/train_cnn.py` |
 | `emager-visualize-libemg` | Visualize with libemg | `python examples/visualisation/libemg_visualize.py` |
 | `emager-live-64ch` | Live 64-channel visualization | `python examples/visualisation/live_64_channel.py` |
+| `emager-run-tests` | Run complete test suite | `python tests/run_all_tests.py` |
 
 ## License
 

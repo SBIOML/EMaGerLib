@@ -1,9 +1,11 @@
 """Test suite for config system"""
 
 import unittest
+import tempfile
+import shutil
 from pathlib import Path
-from emager_tools.config.loader import load_py_config, load_json_config, load_yaml_config
-from emager_tools.config.util import save_config
+from emager_tools.config.load_config import load_config
+from emager_tools.config.save_config import save_config
 
 
 class TestConfigSystem(unittest.TestCase):
@@ -14,13 +16,19 @@ class TestConfigSystem(unittest.TestCase):
         """Set up test fixtures"""
         cls.config_dir = Path(__file__).parent.parent / "config_examples"
         cls.test_dir = Path(__file__).parent
+        cls.temp_dir = tempfile.mkdtemp()
+
+    @classmethod
+    def tearDownClass(cls):
+        """Clean up temporary directory"""
+        shutil.rmtree(cls.temp_dir)
     
     def test_01_load_python_config(self):
         """Test loading Python config file"""
         config_file = self.config_dir / "base_config_example.py"
         
         # Just verify loading works and returns a config object
-        cfg = load_py_config(config_file)
+        cfg = load_config(config_file)
         
         self.assertIsNotNone(cfg, "Config should not be None")
         self.assertTrue(hasattr(cfg, 'SESSION'), "Config should have SESSION attribute")
@@ -31,7 +39,7 @@ class TestConfigSystem(unittest.TestCase):
         """Test round-trip: Python -> JSON -> Load"""
         # Load from Python
         config_file = self.config_dir / "base_config_example.py"
-        cfg_original = load_py_config(config_file)
+        cfg_original = load_config(config_file)
         
         # Get some original values to compare
         original_data = {
@@ -41,14 +49,15 @@ class TestConfigSystem(unittest.TestCase):
             'SMOOTH_METHOD': cfg_original.SMOOTH_METHOD
         }
         
-        # Save to JSON
+        # Save to JSON (default format)
         saved_file = save_config(cfg_original, self.test_dir, name="test_config")
         self.assertTrue(saved_file.exists(), "Saved file should exist")
+        self.assertTrue(saved_file.suffix == ".json", "Default format should be JSON")
         print(f"✓ Config saved to {saved_file.name}")
         
         try:
             # Load from JSON
-            cfg_loaded = load_json_config(saved_file)
+            cfg_loaded = load_config(saved_file)
             self.assertIsNotNone(cfg_loaded, "Loaded config should not be None")
             print(f"✓ Config loaded from {saved_file.name}")
             
@@ -70,7 +79,7 @@ class TestConfigSystem(unittest.TestCase):
         config_file = self.config_dir / "base_config_example.yaml"
         
         # Just verify loading works
-        cfg = load_yaml_config(config_file)
+        cfg = load_config(config_file)
         
         self.assertIsNotNone(cfg, "Config should not be None")
         self.assertTrue(hasattr(cfg, 'SESSION'), "Config should have SESSION attribute")
@@ -80,7 +89,7 @@ class TestConfigSystem(unittest.TestCase):
     def test_04_extra_fields(self):
         """Test that custom fields can be added and accessed"""
         config_file = self.config_dir / "base_config_example.py"
-        cfg = load_py_config(config_file)
+        cfg = load_config(config_file)
         
         # Add custom fields
         cfg.CUSTOM_FIELD = "test_value"
@@ -91,6 +100,66 @@ class TestConfigSystem(unittest.TestCase):
         self.assertEqual(cfg.CUSTOM_NUMBER, 42)
         self.assertEqual(cfg.get("CUSTOM_FIELD"), "test_value")
         print("✓ Custom fields can be added and accessed")
+
+    def test_05_save_and_load_yaml(self):
+        """Test saving config as YAML and loading it back"""
+        config_file = self.config_dir / "base_config_example.py"
+        cfg_original = load_config(config_file)
+        
+        save_dir = Path(self.temp_dir) / "yaml_test"
+        
+        # Save as YAML
+        saved_file = save_config(
+            cfg_original,
+            save_dir,
+            name="test_config",
+            file_format="yaml"
+        )
+        
+        self.assertTrue(saved_file.exists())
+        self.assertTrue(saved_file.suffix == ".yaml")
+        
+        # Load it back
+        cfg_loaded = load_config(saved_file)
+        
+        # Verify data matches
+        self.assertEqual(cfg_loaded.SESSION, cfg_original.SESSION)
+        self.assertEqual(cfg_loaded.SAMPLING, cfg_original.SAMPLING)
+        self.assertEqual(cfg_loaded.CLASSES, cfg_original.CLASSES)
+        print("✓ YAML save/load round-trip successful")
+
+    def test_06_save_creates_directory(self):
+        """Test that save creates directories if they don't exist"""
+        save_dir = Path(self.temp_dir) / "deep" / "nested" / "directory"
+        
+        self.assertFalse(save_dir.exists())
+        
+        config_file = self.config_dir / "base_config_example.py"
+        cfg = load_config(config_file)
+        
+        saved_file = save_config(cfg, save_dir, name="nested_config")
+        
+        self.assertTrue(save_dir.exists())
+        self.assertTrue(saved_file.exists())
+        print("✓ Save creates nested directories")
+
+    def test_07_save_with_timestamp(self):
+        """Test that saved files include timestamp"""
+        save_dir = Path(self.temp_dir) / "timestamp_test"
+        
+        config_file = self.config_dir / "base_config_example.py"
+        cfg = load_config(config_file)
+        
+        saved_file = save_config(cfg, save_dir, name="timestamped")
+        
+        # Filename should contain timestamp pattern (YYYYMMDD_HHMMSS)
+        filename = saved_file.stem  # Without extension
+        self.assertTrue("_" in filename)
+        
+        # Should have at least two parts: name and timestamp
+        parts = filename.split("_")
+        self.assertGreaterEqual(len(parts), 2)
+        print("✓ Saved files include timestamp")
 
 if __name__ == '__main__':
     unittest.main()

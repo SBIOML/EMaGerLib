@@ -4,10 +4,27 @@ from pathlib import Path
 
 from emager_tools.control.interface_control import InterfaceControl
 from emager_tools.utils.utils import print_packet
-from emager_tools.config.loader import load_py_config
+from emager_tools.config.load_config import load_config
+from emager_tools.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
+
+# Default configuration path
+DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
+
+# Parse arguments
+parser = create_parser(
+    description="Test prosthetic hand control interface",
+    default_config=str(DEFAULT_CONFIG)
+)
+args = parser.parse_args()
 
 # Load configuration
-cfg = load_py_config(Path(__file__).parent.parent / "config_examples" / "base_config_example.py")
+cfg = load_config(args.config)
+
+# Setup logging (after loading config so it can use config defaults)
+setup_logging(args, cfg, script_name="test_hand_control")
+
+# Save config if requested
+save_config_if_requested(args, cfg, script_name="test_hand_control")
 
 def test_hand(hand_type, **kwargs):
     print(f"\n=== Testing {hand_type.capitalize()} Hand ===")

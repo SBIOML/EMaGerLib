@@ -18,12 +18,27 @@ import emager_tools.models.models as etm
 import emager_tools.utils.utils as eutils
 from emager_tools.visualization.realtime_gui import RealTimeGestureUi
 import emager_tools.utils.gestures_json as gjutils
-from emager_tools.config.loader import load_py_config
+from emager_tools.config.load_config import load_config
+from emager_tools.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
+
+# Default configuration path
+DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
+
+# Parse arguments
+parser = create_parser(
+    description="Real-time EMG gesture prediction",
+    default_config=str(DEFAULT_CONFIG)
+)
+args = parser.parse_args()
 
 # Load configuration
-cfg = load_py_config(Path(__file__).parent.parent / "config_examples" / "base_config_example.py")
+cfg = load_config(args.config)
 
-eutils.set_logging()
+# Setup logging (after loading config so it can use config defaults)
+setup_logging(args, cfg, script_name="realtime_prediction")
+
+# Save config if requested
+save_config_if_requested(args, cfg, script_name="realtime_prediction")
 
 def update_labels_process(stop_event:threading.Event, gui:RealTimeGestureUi, conn:Connection | None = None, delay:float=0.01, timeout_delay:float=0.5):
     '''

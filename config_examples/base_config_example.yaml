@@ -30,3 +30,14 @@ PREDICTOR_TIMEOUT_DELAY: 0.50  # Timeout for waiting for new predictions
 SMOOTH_WINDOW: 1  # Set to 1 to disable smoothing (always use latest value)
 SMOOTH_METHOD: 'mode'  # 'mode' recommended for categorical gestures; 'mean' for numeric smoothing
 HEARTBEAT_INTERVAL: 0.1  # Heartbeat interval (seconds) for re-sending the last gesture
+
+# ===== Logging configuration =====
+LOG_LEVEL: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_TO_FILE: false  # Set to true to enable file logging by default
+LOG_FILE_PATH: null  # Path to log file, or null for auto-generated name
+LOG_FILE_NAME: null  # Custom log file name, or null for auto-generated name
+
+# ===== Config saving defaults =====
+SAVE_CONFIG_PATH: null  # Path to save config file, or null for default location
+SAVE_CONFIG_NAME: null  # Custom config file name, or null for auto-generated name
+SAVE_CONFIG_FORMAT: "json"  # json or yaml

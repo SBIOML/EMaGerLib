@@ -1,10 +1,4 @@
-import logging as log
 import numpy as np
-
-
-def set_logging():
-    FORMAT = "[%(filename)s:%(lineno)s - %(funcName)s] %(message)s"
-    log.basicConfig(level=log.DEBUG, format=FORMAT)
 
 
 def get_transform_decimation(transform):

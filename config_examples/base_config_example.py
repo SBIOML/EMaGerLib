@@ -37,3 +37,13 @@ SMOOTH_WINDOW = 1  # Set to 1 to disable smoothing (always use latest value)
 SMOOTH_METHOD = 'mode'  # 'mode' recommended for categorical gestures; 'mean' for numeric smoothing
 HEARTBEAT_INTERVAL = 0.1  # Heartbeat interval (seconds) for re-sending the last gesture
 
+# ===== Logging configuration ===== #
+LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_TO_FILE = False  # Set to True to enable file logging by default
+LOG_FILE_PATH = None  # Path to log file, or None for auto-generated name
+LOG_FILE_NAME = None  # Custom log file name, or None for auto-generated name
+
+# ===== Config saving defaults ===== #
+SAVE_CONFIG_PATH = None  # Path to save config file, or None for default location
+SAVE_CONFIG_NAME = None  # Custom config file name, or None for auto-generated name
+SAVE_CONFIG_FORMAT = "json"  # json or yaml

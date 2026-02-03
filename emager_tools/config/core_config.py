@@ -40,6 +40,17 @@ class CoreConfig:
     SMOOTH_METHOD: str
     HEARTBEAT_INTERVAL: float
 
+    # ===== LOGGING CONFIGURATION ===== #
+    LOG_LEVEL: str = "INFO"
+    LOG_TO_FILE: bool = False
+    LOG_FILE_PATH: Optional[str] = None
+    LOG_FILE_NAME: Optional[str] = None
+
+    # ===== CONFIG SAVING DEFAULTS ===== #
+    SAVE_CONFIG_PATH: Optional[str] = None
+    SAVE_CONFIG_NAME: Optional[str] = None
+    SAVE_CONFIG_FORMAT: str = "json"
+
     # ===== EXTRA VALUES ADDED LATER ===== #
     EXTRA: Dict[str, Any] = field(default_factory=dict, repr=False)
     

@@ -168,6 +168,7 @@ def setup_logging(args: argparse.Namespace, cfg = None, script_name: str = None)
         file_handler.setFormatter(logging.Formatter(log_format, datefmt=date_format))
         handlers.append(file_handler)
         
+        # Keep this print for user visibility about log file location
         print(f"Logging to file: {log_path}")
     
     # Configure root logger
@@ -234,4 +235,5 @@ def save_config_if_requested(args: argparse.Namespace, cfg, script_name: str = N
         # Save config
         saved_file = save_config(cfg, save_dir, name=config_name, file_format=file_format)
         logging.info(f"Configuration saved to: {saved_file}")
+        # Keep this print for user visibility about saved config location
         print(f"[SAVED] Configuration saved to: {saved_file}")

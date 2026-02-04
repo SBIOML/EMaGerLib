@@ -6,6 +6,9 @@ import serial
 import time
 import struct
 from enum import Enum
+import logging
+
+logger = logging.getLogger(__name__)
 
 FRAME_CHAR = 0x7E
 ESC_CHAR = 0x7D
@@ -51,21 +54,21 @@ class PsyonicHandControl(HandInterface):
             return
             
         try:
-            print(f"Connecting to Psyonic hand via USB to TTL on {self.port}")
+            logger.info(f"Connecting to Psyonic hand via USB to TTL on {self.port}")
             self.serial = SerialCommunication(port=self.port, baud_rate=self.baudrate, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE)
             self.serial.open()
             self.connected = True
-            print(f"Connected to Psyonic hand on {self.serial.port}")
+            logger.info(f"Connected to Psyonic hand on {self.serial.port}")
             
             # Initialize the hand
             # self._send_init_command()
             
         except Exception as e:
-            print(f"Error connecting to Psyonic hand: {e}")
-            print("Make sure connections are correct:")
-            print("  TX (USB to TTL) → RX/SDA (Psyonic hand)")
-            print("  RX (USB to TTL) → TX/SCL (Psyonic hand)")
-            print("  GND (USB to TTL) → GND (Psyonic hand)")
+            logger.error(f"Error connecting to Psyonic hand: {e}")
+            logger.info("Make sure connections are correct:")
+            logger.info("  TX (USB to TTL) → RX/SDA (Psyonic hand)")
+            logger.info("  RX (USB to TTL) → TX/SCL (Psyonic hand)")
+            logger.info("  GND (USB to TTL) → GND (Psyonic hand)")
             self.connected = False
             raise
 
@@ -74,7 +77,7 @@ class PsyonicHandControl(HandInterface):
         if self.serial:
             self.serial.close()
             self.connected = False
-            print("Disconnected from Psyonic hand")
+            logger.info("Disconnected from Psyonic hand")
 
     def send_gesture(self, gesture):
         """
@@ -131,9 +134,9 @@ class PsyonicHandControl(HandInterface):
         
     def read_data(self):
         """Read a packet from the Psyonic hand."""
-        print("Reading data from Psyonic hand...")
+        logger.debug("Reading data from Psyonic hand...")
         packet = self.serial.read()
-        print(f" Raw Packet (hex): {[hex(b) for b in bytearray(packet)]}")
+        logger.debug(f" Raw Packet (hex): {[hex(b) for b in bytearray(packet)]}")
         if self.stuffing:
             ppp = PPPUnstuff()
             unstuffed_packet = ppp.unstuff_packet(packet)
@@ -146,10 +149,10 @@ class PsyonicHandControl(HandInterface):
         """Send finger positions using the proper protocol."""
         # Create command payload
         # positions.append(0) # Thumb Rotation
-        print(f"Positions: {positions}")
+        logger.debug(f"Positions: {positions}")
         # Create command packet
         packet = self._create_packet(self.CMD_FINGER_POS, positions)
-        # print(f"Packet: {packet}")
+        # logger.debug(f"Packet: {packet}")
         
         # Send the packet
         self._send_packet(packet)
@@ -181,7 +184,7 @@ class PsyonicHandControl(HandInterface):
     def _send_packet(self, packet):
         """Send a packet with PPP stuffing."""
         if self.print_debug:
-            print(f"Sending Packet (hex): {[hex(b) for b in bytearray(packet)]}")
+            logger.debug(f"Sending Packet (hex): {[hex(b) for b in bytearray(packet)]}")
             print_packet(packet, stuffed=self.stuffing)
         self.serial.write(packet)
         time.sleep(0.1)  # Small delay to ensure command is processed
@@ -236,7 +239,7 @@ class PPPUnstuff:
 
     def add_to_buffer(self, byte: int):
         if self.idx >= self.buffer_size:
-            print("Exceeded maximum buffer size")
+            logger.error("Exceeded maximum buffer size")
             self.reset_state()
         else:
             self.buffer[self.idx] = byte

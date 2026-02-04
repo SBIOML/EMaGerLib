@@ -1,5 +1,8 @@
 import asyncio
 from bleak import BleakClient, BleakScanner
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BLEDevice:
@@ -19,14 +22,14 @@ class BLEDevice:
 
     def connect(self):
         self.client = BleakClient(self.address)
-        print(f"Connecting to {self.address}")
+        logger.info(f"Connecting to {self.address}")
         loop = asyncio.get_event_loop()
         loop.run_until_complete(self.client.connect())
 
     def disconnect(self):
         loop = asyncio.get_event_loop()
         loop.run_until_complete(self.client.disconnect())
-        print(f"Disconnected from {self.address}")
+        logger.info(f"Disconnected from {self.address}")
         self.client = None
 
     def read(self, service_uuid, char_uuid):
@@ -64,7 +67,7 @@ class BLEDevice:
 def scan_and_connect(device_name, retry = 1) -> BLEDevice:
     target_device = None
     for i in range(retry):
-        print(f"Scanning for {device_name}... Attempt {i+1}")
+        logger.info(f"Scanning for {device_name}... Attempt {i+1}")
         loop = asyncio.get_event_loop()
         devices = loop.run_until_complete(BleakScanner.discover())
         for device in devices:
@@ -75,5 +78,5 @@ def scan_and_connect(device_name, retry = 1) -> BLEDevice:
                 return ble_device
     
     if target_device is None:
-        print(f"Device with name {device_name} not found.")
+        logger.warning(f"Device with name {device_name} not found.")
         return None

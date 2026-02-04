@@ -4,6 +4,7 @@ import numpy as np
 import datetime
 import matplotlib.pyplot as plt
 from pathlib import Path
+import logging
 
 from libemg.data_handler import OfflineDataHandler, RegexFilter
 from libemg.feature_extractor import FeatureExtractor
@@ -29,7 +30,10 @@ cfg = load_config(args.config)
 # Setup logging (after loading config so it can use config defaults)
 setup_logging(args, cfg, script_name="train_cnn")
 
-# Save config if requested
+# Create module logger (inherits from root logger configured above)
+logger = logging.getLogger(__name__)
+
+# Save config if requested (uses logging internally)
 save_config_if_requested(args, cfg, script_name="train_cnn")
 
 
@@ -64,8 +68,8 @@ def main():
     train_windows, train_meta = train_data.parse_windows(cfg.WINDOW_SIZE, cfg.WINDOW_INCREMENT)
     test_windows, test_meta = test_data.parse_windows(cfg.WINDOW_SIZE, cfg.WINDOW_INCREMENT)
 
-    print(f"Training metadata: {train_meta}, Testing metadata: {test_meta}")
-    print(f"Training windows: {train_windows.shape}, Testing windows: {test_windows.shape}")
+    logger.info(f"Training metadata: {train_meta}, Testing metadata: {test_meta}")
+    logger.info(f"Training windows: {train_windows.shape}, Testing windows: {test_windows.shape}")
 
 
     # Features extraction
@@ -96,15 +100,15 @@ def main():
 
     res = classifier.fit(train_dl, test_dl, max_epochs=cfg.EPOCH)
     acc = int(res[0]["test_acc"]*1000)
-    print(f"Resultat: {res} accuracy : {acc}/1000")
+    logger.info(f"Resultat: {res} accuracy : {acc}/1000")
     current_time = datetime.datetime.now().strftime("%y-%m-%d_%Hh%M")
-    print(f"Current time: {current_time}")
+    logger.info(f"Current time: {current_time}")
 
     # Save the model
     model_path = f"{cfg.SAVE_PATH}libemg_torch_cnn_{cfg.SESSION}_{acc}_{current_time}.pth"
     torch.save(classifier.state_dict(), model_path)
-    print(f"Model saved at {model_path}")
+    logger.info(f"Model saved at {model_path}")
 
 if __name__ == "__main__":
     main()
-print(f"Model saved at {model_path}")
+logger.info(f"Model saved at {model_path}")

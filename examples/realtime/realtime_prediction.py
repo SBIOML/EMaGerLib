@@ -6,6 +6,7 @@ import numpy as np
 from multiprocessing import Lock
 from multiprocessing.connection import Connection
 from pathlib import Path
+import logging
 
 from libemg.data_handler import OnlineDataHandler
 from libemg.emg_predictor import EMGClassifier, OnlineEMGClassifier
@@ -37,7 +38,10 @@ cfg = load_config(args.config)
 # Setup logging (after loading config so it can use config defaults)
 setup_logging(args, cfg, script_name="realtime_prediction")
 
-# Save config if requested
+# Create module logger (inherits from root logger configured above)
+logger = logging.getLogger(__name__)
+
+# Save config if requested (uses logging internally)
 save_config_if_requested(args, cfg, script_name="realtime_prediction")
 
 def update_labels_process(stop_event:threading.Event, gui:RealTimeGestureUi, conn:Connection | None = None, delay:float=0.01, timeout_delay:float=0.5):
@@ -95,7 +99,7 @@ def update_labels_process(stop_event:threading.Event, gui:RealTimeGestureUi, con
         gui.update_label(label)
 
         if conn is not None:
-            print(f"Output : pred({predictions[0]})  gest[{label}] {output_data}" + " "*10,"... sending data ...")
+            logger.info(f"Output : pred({predictions[0]})  gest[{label}] {output_data}... sending data ...")
             conn.send(output_data)
 
         time.sleep(delay)
@@ -105,7 +109,7 @@ def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.0
 
     # Create data handler and streamer
     p, smi = emager_streamer()
-    print(f"Streamer created: process: {p}, smi : {smi}")
+    logger.info(f"Streamer created: process: {p}, smi : {smi}")
     odh = OnlineDataHandler(shared_memory_items=smi)
 
     filter = Filter(cfg.SAMPLING)
@@ -114,21 +118,21 @@ def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.0
     bandpass_filter_dictionary={ "name":"bandpass", "cutoff": [20, 450], "order": 4}
     filter.install_filters(bandpass_filter_dictionary)
     odh.install_filter(filter)
-    print("Data handler created")
+    logger.info("Data handler created")
 
     # Choose feature group and classifier
     fe = FeatureExtractor()
     fg = ["MAV"]
-    print("Feature group: ", fg)
+    logger.info(f"Feature group: {fg}")
 
     # Verify model loading and state dict compatibility
     model = etm.EmagerCNN((4, 16), cfg.NUM_CLASSES, -1)
-    print("Loading model from: ", cfg.cfg.MODEL_PATH)
+    logger.info(f"Loading model from: {cfg.cfg.MODEL_PATH}")
     try:
         model.load_state_dict(torch.load(cfg.MODEL_PATH))
         model.eval()
     except RuntimeError as e:
-        print(f"Error loading model: {e}")
+        logger.error(f"Error loading model: {e}")
 
     classi = EMGClassifier(model)
     classi.add_majority_vote(cfg.MAJORITY_VOTE)
@@ -143,8 +147,8 @@ def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.0
 
     # Create GUI
     files = gjutils.get_images_list(cfg.MEDIA_PATH)
-    print("Files: ", files)
-    print("Creating GUI...")
+    logger.debug(f"Files: {files}")
+    logger.info("Creating GUI...")
     gui = RealTimeGestureUi(files)
     
     stop_event = threading.Event()
@@ -152,11 +156,11 @@ def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.0
         stop_event, gui, conn, delay, timeout_delay))
 
     try:
-        print("Starting classification...")
+        logger.info("Starting classification...")
         oclassi.run(block=False)
-        print("Starting process thread...")
+        logger.info("Starting process thread...")
         updateLabelProcess.start()
-        print("Starting GUI...")
+        logger.info("Starting GUI...")
         if use_gui:
             gui.run()
         else:
@@ -164,7 +168,7 @@ def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.0
                 time.sleep(1)
         
     except Exception as e:
-        print(f"Error during classification: {e}")
+        logger.error(f"Error during classification: {e}")
 
     finally :
         if conn is not None:
@@ -172,7 +176,7 @@ def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.0
         stop_event.set()
         oclassi.stop_running()
         
-        print("Exiting")
+        logger.info("Exiting")
 
 
 def main():

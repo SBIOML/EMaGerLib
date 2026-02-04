@@ -1,6 +1,9 @@
 import serial
 import serial.tools.list_ports
 from time import sleep, time
+import logging
+
+logger = logging.getLogger(__name__)
 
 class SerialCommunication:
     # Common device IDs
@@ -30,9 +33,9 @@ class SerialCommunication:
                         (vid, pid) = self.DEVICE_IDS[self.device_name]
                         _device_name = self.device_name
                     if port.vid == vid and port.pid == pid:
-                        print(f"Found device: {_device_name} as {port.device}")
-                        print(f"  Manufacturer: {port.manufacturer}")
-                        print(f"  Product: {port.product}")
+                        logger.info(f"Found device: {_device_name} as {port.device}")
+                        logger.debug(f"  Manufacturer: {port.manufacturer}")
+                        logger.debug(f"  Product: {port.product}")
                         return port.device, _device_name
                     if self.device_name is not None:
                         break
@@ -68,29 +71,29 @@ class SerialCommunication:
     def test(self):
         """Test serial communication by sending and reading data."""
         try:
-            print("Testing serial communication...")
+            logger.info("Testing serial communication...")
             
             # Try to open connection
-            print("Opening serial port...")
+            logger.info("Opening serial port...")
             self.open()
-            print(f"Connected to device {self.device_name} as {self.port} at {self.baud_rate} baud")
+            logger.info(f"Connected to device {self.device_name} as {self.port} at {self.baud_rate} baud")
             
             # Send test message
             test_msg = "TEST"
-            print(f"\nSending test message: {test_msg}")
+            logger.info(f"Sending test message: {test_msg}")
             self.write(test_msg)
             
             # Read response
             response = self.read()
-            print(f"Received response: {response}")
+            logger.info(f"Received response: {response}")
             
             # Close connection
-            print("\nClosing serial port...")
+            logger.info("Closing serial port...")
             self.close()
-            print("Test completed successfully")
+            logger.info("Test completed successfully")
             
         except Exception as e:
-            print(f"Error during serial test: {e}")
+            logger.error(f"Error during serial test: {e}")
             if self.serial and self.serial.is_open:
                 self.close()
 

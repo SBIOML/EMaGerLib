@@ -1,12 +1,12 @@
 from src.control.constants import *
 import src.utils.gestures_json as gj
 from libemg.gui import GUI
+import logging
 
 from src.configs.config_main import *
 config = Config()
 
-def log(message, mode=Logger.INFO):
-    print(message)
+logger = logging.getLogger(__name__)
 
 # FINGER POSITIONS PREDEFINED
 NUTRAL_FINGER_POS = 250
@@ -29,7 +29,7 @@ def decode_gesture(gesture):
     if isinstance(gesture, str):
         gestures_name = gesture
         gesture = int(list(gestures_dict.keys())[list(gestures_dict.values()).index(gestures_name)])
-    print(f"Gesture: {gestures_name} ({gesture})")
+    logger.info(f"Gesture: {gestures_name} ({gesture})")
 
     thumb_finger_pos = NUTRAL_FINGER_POS
     index_finger_pos = NUTRAL_FINGER_POS
@@ -95,7 +95,7 @@ def decode_gesture(gesture):
         thumb_rotation_pos = SIDE_ROTATION_POS
 
     else:
-        log("Unknown gesture", mode=Logger.WARNING)
+        logger.warning("Unknown gesture")
         pass
 
     return thumb_finger_pos, index_finger_pos, middle_finger_pos, ring_finger_pos, little_finger_pos, thumb_rotation_pos

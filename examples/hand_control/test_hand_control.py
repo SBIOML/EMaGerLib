@@ -1,6 +1,6 @@
-print("Loading hand control test...")
 import time
 from pathlib import Path
+import logging
 
 from emager_tools.control.interface_control import InterfaceControl
 from emager_tools.utils.utils import print_packet
@@ -23,78 +23,83 @@ cfg = load_config(args.config)
 # Setup logging (after loading config so it can use config defaults)
 setup_logging(args, cfg, script_name="test_hand_control")
 
-# Save config if requested
+# Create module logger (inherits from root logger configured above)
+logger = logging.getLogger(__name__)
+
+# Save config if requested (uses logging internally)
 save_config_if_requested(args, cfg, script_name="test_hand_control")
 
+logger.info("Loading hand control test...")
+
 def test_hand(hand_type, **kwargs):
-    print(f"\n=== Testing {hand_type.capitalize()} Hand ===")
+    logger.info(f"=== Testing {hand_type.capitalize()} Hand ===")
     try:
         # Initialize hand
         hand = InterfaceControl(hand_type=hand_type, **kwargs)
         
         # Connect to the device
-        print(f"Connecting to {hand_type} hand...")
+        logger.info(f"Connecting to {hand_type} hand...")
         hand.connect()
         
         # Test basic functionality
-        print("\nTesting basic gestures...")
+        logger.info("Testing basic gestures...")
         # gestures = ["Peace", "Hand_Close", "Hand_Open", "OK"]
         gestures = cfg.CLASSES  # Using gesture indices from config
         for gesture in gestures:
-            print(f"Sending gesture: {gesture}")
+            logger.info(f"Sending gesture: {gesture}")
             hand.send_gesture(gesture)
             time.sleep(1)  # Wait between gestures
-            # print("Reading data...")
+            # logger.debug("Reading data...")
             # packet = hand.read_data()
             # print_packet(packet, stuffed=True)
             # time.sleep(0.5) 
             
             
         # Test individual finger control
-        # print("\nTesting individual finger control...")
+        # logger.info("Testing individual finger control...")
         # for finger in range(6):
-        #     print(f"Moving finger {finger} to position 50")
+        #     logger.info(f"Moving finger {finger} to position 50")
         #     hand.send_finger_position(finger, 100)
         #     time.sleep(0.2)
         
             
         # Test hand-specific features
         if hand_type == "zeus":
-            print("\nTesting telemetry...")
+            logger.info("Testing telemetry...")
             hand.start_telemetry()
             time.sleep(2)
             hand.stop_telemetry()
             
         elif hand_type == "smart":
             # Test direct gesture interface
-            print("\nTesting direct gesture interface...")
+            logger.info("Testing direct gesture interface...")
             for gesture_value in range(5):  # Test gestures 0-4
-                print(f"Sending direct gesture value: {gesture_value}")
+                logger.info(f"Sending direct gesture value: {gesture_value}")
                 hand.send_gesture(gesture_value, direct=True)
                 time.sleep(0.5)
                 
             # Test LED controls
-            print("\nTesting LED controls...")
+            logger.info("Testing LED controls...")
             hand.hand.toggle_led_rpi()
             time.sleep(1)
             hand.hand.blink_led_rpi()
             
         # Cleanup
-        print("\nDisconnecting...")
+        logger.info("Disconnecting...")
         hand.disconnect()
         
     except Exception as e:
-        print(f"Error testing {hand_type} hand: {e}")
+        logger.error(f"Error testing {hand_type} hand: {e}")
         raise e
 
 def main():
-    print("\n Starting hand control tests...")
+    logger.info("Starting hand control tests...")
     
     try:
         test_hand("psyonic", stuffing=True)
-        print("\nAll tests completed!") 
+        logger.info("All tests completed!") 
     except Exception as e:
-        print(f"Tests Failed! : {e}")
+        logger.error(f"Tests Failed! : {e}")
 
 if __name__ == "__main__":
     main()

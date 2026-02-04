@@ -1,9 +1,8 @@
-print("Loading hand control test...")
-# from control.interface_control import InterfaceControl
 import time
 from math import pi, sin
 from pathlib import Path
 from ah_wrapper import AHSerialClient
+import logging
 
 from emager_tools.control.gesture_decoder import decode_gesture
 from emager_tools.utils.utils import print_packet
@@ -26,8 +25,13 @@ cfg = load_config(args.config)
 # Setup logging (after loading config so it can use config defaults)
 setup_logging(args, cfg, script_name="test_psyonic_hand")
 
-# Save config if requested
+# Create module logger (inherits from root logger configured above)
+logger = logging.getLogger(__name__)
+
+# Save config if requested (uses logging internally)
 save_config_if_requested(args, cfg, script_name="test_psyonic_hand")
+
+logger.info("Loading hand control test...")
 
 
 def main():
@@ -41,7 +45,7 @@ def main():
     """
     
     try:
-        print("\nTesting basic gestures...")
+        logger.info("Testing basic gestures...")
         pos = [30, 30, 30, 30, 30, -30]
         
         # gestures = ["Peace", "Hand_Close", "Hand_Open", "OK"]
@@ -56,7 +60,7 @@ def main():
                 gesture_id = (gesture_id + 1) % len(gestures)
 
             gesture = gestures[gesture_id]
-            print(f"Sending gesture: {gesture}")
+            logger.info(f"Sending gesture: {gesture}")
             # Get finger positions from our gesture decoder
             thumb_pos, index_pos, middle_pos, ring_pos, little_pos, thumb_rotation_pos = decode_gesture(gesture)
             # Scale positions from 0-1500 to 0-150 for Psyonic hand
@@ -68,7 +72,7 @@ def main():
                 int(thumb_pos / 10),
                 int(thumb_rotation_pos / 10)
             ]
-            print(f"Setting positions to: {pos}")
+            logger.debug(f"Setting positions to: {pos}")
             client.set_position(positions=pos, reply_mode=2)  # Update command
             client.send_command()  # Send command
             time.sleep(1 / client.rate_hz)

@@ -3,6 +3,9 @@ import yaml
 from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 def save_config(cfg, path: Path, name: str | None = None, file_format: str = "json"):
     """Save configuration to file.
@@ -59,6 +62,6 @@ def save_config(cfg, path: Path, name: str | None = None, file_format: str = "js
     return file
 
 def print_config(cfg):
-    print("===== CONFIG =====")
+    logger.debug("===== CONFIG =====")
     for k, v in asdict(cfg).items():
-        print(f"{k}: {v}")
+        logger.debug(f"{k}: {v}")

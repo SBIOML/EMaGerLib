@@ -4,6 +4,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+import logging
 
 from libemg.data_handler import OnlineDataHandler
 from libemg.datasets import OneSubjectMyoDataset
@@ -28,16 +29,19 @@ cfg = load_config(args.config)
 # Setup logging (after loading config so it can use config defaults)
 setup_logging(args, cfg, script_name="screen_guided_training")
 
-# Save config if requested
+# Create module logger (inherits from root logger configured above)
+logger = logging.getLogger(__name__)
+
+# Save config if requested (uses logging internally)
 save_config_if_requested(args, cfg, script_name="screen_guided_training")
 
 
 def main():
     # Create data handler and streamer
     p, smi = emager_streamer()
-    print(f"Streamer created: process: {p}, smi : {smi}")
+    logger.info(f"Streamer created: process: {p}, smi : {smi}")
     odh = OnlineDataHandler(shared_memory_items=smi)
-    print("Data handler created")
+    logger.info("Data handler created")
 
     args = {
         "online_data_handler": odh,
@@ -62,7 +66,7 @@ def main():
     has_data = any(os.scandir(dataset_path))
 
     if has_data:
-        print(f"Data found in '{dataset_path}'.")
+        logger.info(f"Data found in '{dataset_path}'.")
         while True:
             choice = input("Choose action - [O]verwrite, [R]ename, [C]ancel: ").strip().lower()
             if choice == "o" or choice == "overwrite":
@@ -70,10 +74,10 @@ def main():
                 if confirm == "yes":
                     shutil.rmtree(dataset_path)
                     os.makedirs(dataset_path, exist_ok=True)
-                    print(f"Contents of '{dataset_path}' deleted.")
+                    logger.info(f"Contents of '{dataset_path}' deleted.")
                     break
                 else:
-                    print("Overwrite cancelled.")
+                    logger.info("Overwrite cancelled.")
                     continue
             elif choice == "r" or choice == "rename":
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -92,17 +96,17 @@ def main():
                     setattr(gui, "args", args)
                 except Exception:
                     pass
-                print(f"Dataset directory renamed to '{cfg.DATAFOLDER}'. Using that path for this run.")
+                logger.info(f"Dataset directory renamed to '{cfg.DATAFOLDER}'. Using that path for this run.")
                 break
             elif choice == "c" or choice == "cancel":
-                print("Operation cancelled. Exiting.")
+                logger.info("Operation cancelled. Exiting.")
                 sys.exit(0)
             else:
-                print("Invalid choice. Please enter O, R, or C.")
+                logger.warning("Invalid choice. Please enter O, R, or C.")
     else:
         # Ensure folder exists (redundant safe-guard)
         os.makedirs(dataset_path, exist_ok=True)
     
     gui.start_gui()
 
-    print("Data saved in : " + cfg.DATAFOLDER)
+    logger.info(f"Data saved in: {cfg.DATAFOLDER}")

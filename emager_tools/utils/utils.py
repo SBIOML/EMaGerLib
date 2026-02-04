@@ -1,4 +1,7 @@
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def get_transform_decimation(transform):
@@ -22,14 +25,14 @@ def print_packet(packet: bytes | bytearray | list[int], stuffed: bool = False) -
         data = list(packet)
 
     length = len(data)
-    print(f"Packet length: {length}")
+    logger.debug(f"Packet length: {length}")
     if length < 15 and not stuffed:
-        print("Warning: expected >= 15 bytes (address + header + 12-byte payload + checksum)")
+        logger.warning("Warning: expected >= 15 bytes (address + header + 12-byte payload + checksum)")
     if length < 17 and stuffed:
-        print("Warning: expected >= 17 bytes (stuffing + address + header + 12-byte payload + checksum + stuffing)")
+        logger.warning("Warning: expected >= 17 bytes (stuffing + address + header + 12-byte payload + checksum + stuffing)")
 
-    print("Idx | Hex   | Dec   | Field")
-    print("-----------------------------")
+    logger.debug("Idx | Hex   | Dec   | Field")
+    logger.debug("-----------------------------")
     for i, b in enumerate(data):
         # Index
         idx_str = str(i)
@@ -62,6 +65,6 @@ def print_packet(packet: bytes | bytearray | list[int], stuffed: bool = False) -
             field = "Extra"
 
         # Align columns roughly: idx left, hex width 6, dec width 6
-        print(f"{idx_str:<3} | {hex_str:<6} | {dec_str:<6} | {field}")
+        logger.debug(f"{idx_str:<3} | {hex_str:<6} | {dec_str:<6} | {field}")
 
-    print()
+    logger.debug("")

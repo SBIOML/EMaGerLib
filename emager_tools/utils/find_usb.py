@@ -1,12 +1,15 @@
 import serial.tools.list_ports
 import sys
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 def find_port(vid, pid):
     ports = serial.tools.list_ports.comports()
     for port in ports:
         if port.vid == vid and port.pid == pid:
-            print(f"Found device: {port.device}")
+            logger.info(f"Found device: {port.device}")
             return port.device
     raise ValueError("Device not found")
     return None

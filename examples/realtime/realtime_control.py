@@ -4,6 +4,7 @@ import time
 from collections import deque, Counter
 from statistics import mean
 from pathlib import Path
+import logging
 
 from examples.realtime.realtime_prediction import predicator
 import emager_tools.utils.utils as eutils
@@ -28,7 +29,10 @@ cfg = load_config(args.config)
 # Setup logging (after loading config so it can use config defaults)
 setup_logging(args, cfg, script_name="realtime_control")
 
-# Save config if requested
+# Create module logger (inherits from root logger configured above)
+logger = logging.getLogger(__name__)
+
+# Save config if requested (uses logging internally)
 save_config_if_requested(args, cfg, script_name="realtime_control")
 
 # PREDICTOR
@@ -47,7 +51,7 @@ def run_controller_process(conn: Connection=None):
         images = gjutils.get_images_list(cfg.MEDIA_PATH)
         
         # Main loop to read input from stdin
-        print("Communicator waiting for data...")
+        logger.info("Communicator waiting for data...")
         recent = deque(maxlen=cfg.SMOOTH_WINDOW)
         last_gesture = None
         last_send_time = 0.0
@@ -76,7 +80,7 @@ def run_controller_process(conn: Connection=None):
                         if p is not None:
                             recent.append(p)
                     except EOFError:
-                        print("Connection closed")
+                        logger.info("Connection closed")
                         return
 
                 now = time.perf_counter()
@@ -114,9 +118,9 @@ def run_controller_process(conn: Connection=None):
                             try:
                                 comm_controller.send_gesture(last_gesture)
                                 last_send_time = now
-                                print(f"Heartbeat: re-sent gesture [{last_gesture}]")
+                                logger.debug(f"Heartbeat: re-sent gesture [{last_gesture}]")
                             except Exception as e:
-                                print(f"Error sending heartbeat gesture: {e}")
+                                logger.error(f"Error sending heartbeat gesture: {e}")
                     # small sleep to avoid busy waiting but keep responsiveness
                     time.sleep(cfg.POLL_SLEEP_DELAY)
                     # continue to next iteration (no new prediction to process)
@@ -124,7 +128,7 @@ def run_controller_process(conn: Connection=None):
 
             # Exit the loop if no more input is received
             if input_data is None or input_data == "":
-                print("NO INPUT RECEIVED")
+                logger.warning("NO INPUT RECEIVED")
                 continue
            
             # print("Communicator Received input:", input_data)
@@ -139,10 +143,10 @@ def run_controller_process(conn: Connection=None):
                     input_pred = 0
                 gesture = gjutils.get_label_from_index(input_pred, images, gestures_dict)
 
-                print(f"Input: pred({input_pred})  gest[{gesture}]: {input_data}" + " "*10 + "... received data /  sending gesture ...")
+                logger.info(f"Input: pred({input_pred})  gest[{gesture}]: {input_data}... received data / sending gesture ...")
             
             except Exception as e:
-                print("Invalid input. Error: ", e)
+                logger.error(f"Invalid input. Error: {e}")
                 continue
 
             # Send the gesture to the hand
@@ -151,14 +155,14 @@ def run_controller_process(conn: Connection=None):
                 last_gesture = gesture
                 last_send_time = time.perf_counter()
             except Exception as e:
-                print(f"Error sending gesture: {e}")
-            print("="*50)
+                logger.error(f"Error sending gesture: {e}")
+            logger.debug("="*50)
             
     except Exception as e:
-        print(f"Error communicator: {e}")
+        logger.error(f"Error communicator: {e}")
     finally:
         comm_controller.disconnect()
-        print("Communicator Exiting...")
+        logger.info("Communicator Exiting...")
 
 
 # CONNECTION HANDLER
@@ -167,7 +171,7 @@ def run_process(target, conn: Connection):
     try:
         target(conn)
     except Exception as e:
-        print(f"An error occurred in a subprocess: {e}")
+        logger.error(f"An error occurred in a subprocess: {e}")
     finally:
         conn.close()
 
@@ -192,7 +196,7 @@ def main():
         prediction_process.join()
         communicator_process.join()
     except KeyboardInterrupt:
-        print("\nReceived keyboard interrupt, shutting down...")
+        logger.info("Received keyboard interrupt, shutting down...")
         prediction_process.terminate()
         communicator_process.terminate()
         prediction_process.join()
@@ -211,7 +215,7 @@ if __name__ == "__main__":
             p1.join()
             p2.join()
     except Exception as e:
-        print(f"An error occurred in the main process: {e}")
+        logger.error(f"An error occurred in the main process: {e}")
     finally:
         parent_conn.close()
         child_conn.close()

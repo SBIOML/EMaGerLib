@@ -1,7 +1,10 @@
 import time
 from math import pi, sin
+import logging
 
 from ah_wrapper import AHSerialClient
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -21,7 +24,7 @@ def main():
                 ft = current_time * 3 + i * (2 * pi) / 12
                 pos[i] = (0.5 * sin(ft) + 0.5) * 45 + 15
             pos[5] = -pos[5]
-            print(f"Setting positions to: {pos}")
+            logger.debug(f"Setting positions to: {pos}")
             client.set_position(positions=pos, reply_mode=2)  # Update command
             client.send_command()  # Send command
             # time.sleep(1 / client.rate_hz)

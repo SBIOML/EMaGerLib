@@ -1,5 +1,8 @@
 import os
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 ### GESTURES JSON UTILS ###
 
@@ -28,7 +31,7 @@ def get_gestures_dict(images):
             raise FileNotFoundError(f"Folder not found: {images_folder}")
         list_file = list(filter(lambda f: f.endswith("json"), os.listdir(images_folder)))[0]
     if not list_file:
-        print(f"No JSON file found in {images_folder}")
+        logger.warning(f"No JSON file found in {images_folder}")
         return None
     with open(images_folder + "/" + list_file, "r") as f:
         gestures_dict = json.load(f)
@@ -49,7 +52,7 @@ def get_index_from_label(label:int, images, gestures_dict=None):
     for index, img in enumerate(images):
         if images_name in img:
             return index
-    print(f"Image not found: {images_name}")
+    logger.error(f"Image not found: {images_name}")
     return None
 
 def get_label_from_index(index:int, images, gestures_dict=None):

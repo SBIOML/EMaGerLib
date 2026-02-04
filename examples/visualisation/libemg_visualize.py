@@ -1,5 +1,6 @@
 import time
 from pathlib import Path
+import logging
 
 from libemg.data_handler import OnlineDataHandler
 from libemg.streamers import emager_streamer
@@ -23,13 +24,16 @@ cfg = load_config(args.config)
 # Setup logging (after loading config so it can use config defaults)
 setup_logging(args, cfg, script_name="libemg_visualize")
 
-# Save config if requested
+# Create module logger (inherits from root logger configured above)
+logger = logging.getLogger(__name__)
+
+# Save config if requested (uses logging internally)
 save_config_if_requested(args, cfg, script_name="libemg_visualize")
 
 def main():
     # Create data handler and streamer
     p, smi = emager_streamer()
-    print(f"Streamer created: process: {p}, smi : {smi}")
+    logger.info(f"Streamer created: process: {p}, smi : {smi}")
     odh = OnlineDataHandler(shared_memory_items=smi)
 
     if cfg.FILTER:
@@ -43,6 +47,6 @@ def main():
     try :
         odh.visualize(num_samples=5000, block=True)
     except Exception as e:
-        print(e)
+        logger.error(e)
     finally:
-        print("Exiting...")
+        logger.info("Exiting...")

@@ -7,6 +7,9 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6 import QtGui
 import serial.tools.list_ports
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def reorder(data, mask, match_result):
@@ -36,7 +39,7 @@ class HDSensor(object):
     '''
 
     def __init__(self, serialpath, BR):
-        print('init sensor')
+        logger.info('init sensor')
         '''
         Initialize HDSensor object, open serial communication to specified port using PySerial API
         :param serialpath: (str) - Path to serial port
@@ -105,7 +108,7 @@ class HDSensor(object):
                     d += [samples[i]]
                     ### ^ Separating recorded data to respective channels
             elif feedback:
-                print('Corrupted data. Dropped packet.')
+                logger.warning('Corrupted data. Dropped packet.')
             else:
                 pass
         self.close()
@@ -172,7 +175,7 @@ class HDSensor(object):
         #                 ### ^ Remapping data channels
         else:
             for i in self.channelMap:
-                print(len(data[i]))
+                logger.debug(len(data[i]))
                 data_remap += [signal.decimate(data[i], 2)]
         # data_remap = signal.decimate(data_remap, 2)
         # print("before:", len(data_remap[0]))
@@ -277,16 +280,16 @@ def find_port(vid, pid):
     ports = serial.tools.list_ports.comports()
     for port in ports:
         if port.vid == vid and port.pid == pid:
-            print(f"Found device: {port.device}")
+            logger.info(f"Found device: {port.device}")
             return port.device
     raise ValueError("Device not found")
 
 
 def main():
-    print('start')
+    logger.info('start')
     PORT = find_port(0x04b4, 0xf155)
     sensor = HDSensor(PORT, 1500000)
-    print('sensor init')
+    logger.info('sensor init')
     num_signals = 64
     data_points = 3000  # 3 seconds at 100 samples per second
     refresh_rate = 30  # 30Hz refresh rate

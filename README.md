@@ -156,6 +156,8 @@ emagerpy uses a flexible configuration system supporting multiple formats:
    emager-train-cnn -c my_config.py
    ```
 
+> **Note**: If you change path parameters (like `BASE_PATH` or `MEDIA_PATH`), update `.gitignore` accordingly to avoid committing large data files. See the [Configuration Guide](docs/CONFIGURATION.md) for details.
+
 ### Key Configuration Parameters
 
 | Parameter | Description | Example |

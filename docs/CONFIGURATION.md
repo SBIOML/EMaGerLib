@@ -241,6 +241,30 @@ emager-realtime-predict -c saved_configs/experiment_01.json
 - **Save used configs**: Use `--save-config-name` for reproducibility
 - **Start from examples**: Copy [base_config_example.py](../config_examples/base_config_example.py)
 
+### Important: Update .gitignore for Custom Paths
+
+> **⚠️ Warning**: If you change any path-related parameters in your config (especially `BASE_PATH`, `MEDIA_PATH`, log directories, or saved config locations), you should update your `.gitignore` file accordingly to prevent committing large datasets, media files, or logs to version control.
+
+The default `.gitignore` file has a clearly marked configurable section:
+
+```gitignore
+### ===============CONFIGURABLE============== ###
+### CHANGE THESE IF YOU MODIFY IN CONFIG FILE ###
+logs/ 
+media-test/ 
+Datasets/    
+saved_configs/  
+### ========================================= ###
+```
+
+**Examples of when to update .gitignore**:
+- Changed `BASE_PATH` from `"./Datasets/"` to `"./MyData/"` → Add `MyData/` to `.gitignore`
+- Changed `MEDIA_PATH` from `"./media-test/"` to `"./gestures/"` → Add `gestures/` to `.gitignore`
+- Using custom log directory → Add your log path to `.gitignore`
+- Changed saved config location → Add that path to `.gitignore`
+
+This prevents accidentally committing large data files to your repository.
+
 ### Validation
 
 The system automatically validates:

@@ -23,7 +23,7 @@ All emagerpy commands support these arguments:
 
 | Argument | Type | Description | Default |
 |----------|------|-------------|---------|
-| `--log-level` | LEVEL | Logging verbosity (DEBUG, INFO, WARNING, ERROR) | INFO |
+| `--log-level` | LEVEL | Logging verbosity (DEBUG, INFO, WARNING, ERROR, CRITICAL) | INFO |
 | `--log-to-file` | Flag | Enable file logging | False |
 | `--no-log-to-file` | Flag | Disable file logging | - |
 | `--log-file-path` | PATH | Exact log file path | Auto-generated |

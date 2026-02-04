@@ -111,4 +111,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-logger.info(f"Model saved at {model_path}")

@@ -50,3 +50,6 @@ def main():
         logger.error(e)
     finally:
         logger.info("Exiting...")
+        
+if __name__ == "__main__":
+    main()

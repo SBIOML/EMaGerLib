@@ -176,33 +176,6 @@ def run_process(target, conn: Connection):
         conn.close()
 
 def main():
-    """
-    Main entry point for realtime control.
-    """
-    from multiprocessing import Process, Pipe
-    
-    # Create pipes for communication
-    conn_p, conn_c = Pipe()
-    conn_rp, conn_rc = Pipe()
-    
-    # Start processes
-    prediction_process = Process(target=predicator, args=(True, conn_p))
-    communicator_process = Process(target=communicator, args=(conn_c,))
-    
-    try:
-        prediction_process.start()
-        communicator_process.start()
-        
-        prediction_process.join()
-        communicator_process.join()
-    except KeyboardInterrupt:
-        logger.info("Received keyboard interrupt, shutting down...")
-        prediction_process.terminate()
-        communicator_process.terminate()
-        prediction_process.join()
-        communicator_process.join()
-
-if __name__ == "__main__":
     try:
             parent_conn, child_conn = Pipe()
             
@@ -214,6 +187,8 @@ if __name__ == "__main__":
             
             p1.join()
             p2.join()
+    except KeyboardInterrupt:
+        logger.info("Received keyboard interrupt, shutting down...")
     except Exception as e:
         logger.error(f"An error occurred in the main process: {e}")
     finally:
@@ -224,3 +199,6 @@ if __name__ == "__main__":
             p1.terminate()
         if p2.is_alive():
             p2.terminate()
+
+if __name__ == "__main__":
+    main()

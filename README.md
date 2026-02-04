@@ -70,8 +70,8 @@ EMaGerLib sits between libemg (foundation) and your application. Simply import e
 
 ```bash
 # Clone the repository
-git clone https://github.com/SBIOML/emagerpy.git
-cd emagerpy
+git clone https://github.com/SBIOML/EMaGerLib.git
+cd EMaGerLib
 
 # Install in development mode
 pip install -e .
@@ -265,7 +265,7 @@ Comprehensive documentation is available in the `docs/` directory:
 
 - [Configuration Guide](docs/CONFIGURATION.md) - Complete configuration system documentation
 - [CLI Guide](docs/CLI.md) - Command-line arguments and usage examples
-- [Development Guide](docs/DEVELOPMENT.md) - Contributing, extending, and modifying emagerpy
+- [Development Guide](docs/DEVELOPMENT.md) - Contributing, extending, and modifying EMaGerLib
 - [Installation Guide](docs/INSTALLATION.md) - Advanced installation options
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Solutions to common problems
 
@@ -289,8 +289,8 @@ emager-screen-training -c my_config.py
 Clone and install in editable mode, then add custom modules:
 
 ```bash
-git clone https://github.com/SBIOML/emagerpy.git
-cd emagerpy
+git clone https://github.com/SBIOML/EMaGerLib.git
+cd EMaGerLib
 pip install -e .
 ```
 
@@ -334,13 +334,13 @@ For complete development guidelines, see the [Development Guide](docs/DEVELOPMEN
 - Close unnecessary applications
 - Consider model quantization for performance
 
-For comprehensive troubleshooting, see the [Troubleshooting Guide](docs/TROUBLESHOOTING.md). You can also check [GitHub Issues](https://github.com/SBIOML/emagerpy/issues) for known problems and solutions.
+For comprehensive troubleshooting, see the [Troubleshooting Guide](docs/TROUBLESHOOTING.md). You can also check [GitHub Issues](https://github.com/SBIOML/EMaGerLib/issues) for known problems and solutions.
 
 ## Contributing
 
 We welcome contributions! Whether it's bug reports, feature requests, or code contributions:
 
-1. **Report bugs** via [GitHub Issues](https://github.com/SBIOML/emagerpy/issues)
+1. **Report bugs** via [GitHub Issues](https://github.com/SBIOML/EMaGerLib/issues)
 2. **Request features** by opening an issue with the "enhancement" label
 3. **Submit code** via pull requests (see [Development Guide](docs/DEVELOPMENT.md))
 
@@ -378,8 +378,8 @@ If you use this software in your research, please cite:
 **Author**: Étienne Michaud  
 **Email**: etmic6@ulaval.ca  
 **Organization**: Smart Biomedical Microsystems Laboratory  
-**GitHub**: [SBIOML/emagerpy](https://github.com/SBIOML/emagerpy)
+**GitHub**: [SBIOML/EMaGerLib](https://github.com/SBIOML/EMaGerLib)
 
 ---
 
-**Need help?** Check the [documentation](docs/) or [open an issue](https://github.com/SBIOML/emagerpy/issues).
+**Need help?** Check the [documentation](docs/) or [open an issue](https://github.com/SBIOML/EMaGerLib/issues).

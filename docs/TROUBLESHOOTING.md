@@ -140,7 +140,7 @@ HEARTBEAT_INTERVAL = 0.1  # Re-send last gesture (10 Hz)
 2. Run `emager-run-tests`
 3. Try with default config
 
-**Report issues**: [GitHub Issues](https://github.com/SBIOML/emagerpy/issues)
+**Report issues**: [GitHub Issues](https://github.com/SBIOML/EMaGerLib/issues)
 
 Include:
 - Python version (`python --version`)

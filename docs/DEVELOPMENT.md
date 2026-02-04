@@ -34,8 +34,8 @@ emager-screen-training -c my_config.py
 
 **Setup**:
 ```bash
-git clone https://github.com/YOUR_USERNAME/emagerpy.git
-cd emagerpy
+git clone https://github.com/YOUR_USERNAME/EMaGerLib.git
+cd EMaGerLib
 pip install -e .
 ```
 
@@ -52,7 +52,7 @@ pip install -e .
 **Setup**:
 ```bash
 # Fork and clone both repos
-git clone https://github.com/YOUR_USERNAME/emagerpy.git
+git clone https://github.com/YOUR_USERNAME/EMaGerLib.git
 git clone https://github.com/libemg/libemg.git
 
 # Install libemg first
@@ -60,7 +60,7 @@ cd libemg
 pip install -e .
 
 # Then EMaGerLib
-cd ../emagerpy
+cd ../EMaGerLib
 pip install -e .
 ```
 
@@ -70,8 +70,8 @@ pip install -e .
 
 ```bash
 # Clone repository
-git clone https://github.com/SBIOML/emagerpy.git
-cd emagerpy
+git clone https://github.com/SBIOML/EMaGerLib.git
+cd EMaGerLib
 
 # Create virtual environment
 python -m venv dev_env
@@ -472,8 +472,8 @@ git commit -m "docs: update configuration guide"
 
 ## Getting Help
 
-- Check [GitHub Discussions](https://github.com/SBIOML/emagerpy/discussions)
-- Open [GitHub Issues](https://github.com/SBIOML/emagerpy/issues)
+- Check [GitHub Discussions](https://github.com/SBIOML/EMaGerLib/discussions)
+- Open [GitHub Issues](https://github.com/SBIOML/EMaGerLib/issues)
 - Read existing code for examples
 - Contact: etmic6@ulaval.ca
 

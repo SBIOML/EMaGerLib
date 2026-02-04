@@ -1,6 +1,6 @@
 # Command-Line Interface Guide
 
-Reference for command-line arguments in emagerpy commands.
+Reference for command-line arguments in EMaGerLib commands.
 
 ## Table of Contents
 
@@ -10,7 +10,7 @@ Reference for command-line arguments in emagerpy commands.
 
 ## Common Arguments
 
-All emagerpy commands support these arguments:
+All EMaGerLib commands support these arguments:
 
 ### Configuration
 

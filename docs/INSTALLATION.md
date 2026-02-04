@@ -13,8 +13,8 @@ Installation instructions for EMaGerLib with troubleshooting tips.
 ## Quick Installation
 
 ```bash
-git clone https://github.com/SBIOML/emagerpy.git
-cd emagerpy
+git clone https://github.com/SBIOML/EMaGerLib.git
+cd EMaGerLib
 pip install -e .
 ```
 
@@ -62,8 +62,8 @@ source emagerlib_env/bin/activate
 **Step 2**: Clone repository
 
 ```bash
-git clone https://github.com/SBIOML/emagerpy.git
-cd emagerpy
+git clone https://github.com/SBIOML/EMaGerLib.git
+cd EMaGerLib
 ```
 
 **Step 3**: Install
@@ -99,7 +99,7 @@ pip uninstall libemg
 ### Alternative: Direct from GitHub
 
 ```bash
-pip install git+https://github.com/SBIOML/emagerpy.git
+pip install git+https://github.com/SBIOML/EMaGerLib.git
 ```
 
 ### Alternative: Requirements Only
@@ -162,7 +162,7 @@ python examples/training/train_cnn.py
 **Solutions**:
 ```bash
 # 1. Reinstall
-pip uninstall emagerpy
+pip uninstall emagerlib
 pip install -e .
 
 # 2. Check installation
@@ -204,7 +204,7 @@ pip install git+https://github.com/libemg/libemg.git
 git clone https://github.com/libemg/libemg.git
 cd libemg
 pip install -e .
-cd ../emagerpy
+cd ../EMaGerLib
 pip install -e .
 ```
 
@@ -277,7 +277,7 @@ pip install -e . --extra-index-url https://download.pytorch.org/whl/cu118
 
 ```bash
 # Clone with all branches
-git clone --recurse-submodules https://github.com/SBIOML/emagerpy.git
+git clone --recurse-submodules https://github.com/SBIOML/EMaGerLib.git
 
 # Install in editable mode
 pip install -e .
@@ -290,8 +290,8 @@ pip install pytest black flake8
 
 ```bash
 # Your fork
-git clone https://github.com/YOUR_USERNAME/emagerpy.git
-cd emagerpy
+git clone https://github.com/YOUR_USERNAME/EMaGerLib.git
+cd EMaGerLib
 pip install -e .
 ```
 
@@ -299,11 +299,11 @@ pip install -e .
 
 ```bash
 # Uninstall package
-pip uninstall emagerpy
+pip uninstall emagerlib
 
 # Remove virtual environment
 deactivate
-rm -rf emagerpy_env  # or rmdir /s emagerpy_env on Windows
+rm -rf emagerlib_env  # or rmdir /s emagerlib_env on Windows
 ```
 
 ## Getting Help
@@ -311,7 +311,7 @@ rm -rf emagerpy_env  # or rmdir /s emagerpy_env on Windows
 If installation issues persist:
 
 1. Check [Troubleshooting Guide](TROUBLESHOOTING.md)
-2. Search [GitHub Issues](https://github.com/SBIOML/emagerpy/issues)
+2. Search [GitHub Issues](https://github.com/SBIOML/EMaGerLib/issues)
 3. Open new issue with:
    - Python version (`python --version`)
    - OS and version

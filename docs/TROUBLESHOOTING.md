@@ -15,11 +15,11 @@ pip install -e .
 
 ### Import Errors
 
-**Problem**: `ModuleNotFoundError: No module named 'emager_tools'`
+**Problem**: `ModuleNotFoundError: No module named 'emagerlib'`
 
 **Solution**:
 ```bash
-pip uninstall emagerpy
+pip uninstall emagerlib
 pip install -e .
 ```
 

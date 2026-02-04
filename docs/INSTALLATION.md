@@ -1,6 +1,6 @@
 # Installation Guide
 
-Installation instructions for emagerpy with troubleshooting tips.
+Installation instructions for EMaGerLib with troubleshooting tips.
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ cd emagerpy
 pip install -e .
 ```
 
-This installs emagerpy in editable mode with all dependencies and console commands.
+This installs EMaGerLib in editable mode with all dependencies and console commands.
 
 ## Prerequisites
 
@@ -50,13 +50,13 @@ git --version
 
 ```bash
 # Create
-python -m venv emagerpy_env
+python -m venv emagerlib_env
 
 # Activate (Windows)
-emagerpy_env\Scripts\activate
+emagerlib_env\Scripts\activate
 
 # Activate (Linux/Mac)
-source emagerpy_env/bin/activate
+source emagerlib_env/bin/activate
 ```
 
 **Step 2**: Clone repository
@@ -128,7 +128,7 @@ emager-train-cnn --help
 ### Test Import
 
 ```bash
-python -c "from emager_tools import config; print('Success!')"
+python -c "from emagerlib import config; print('Success!')"
 ```
 
 ### Test EMaGer Connection (if hardware available)
@@ -157,7 +157,7 @@ python examples/training/train_cnn.py
 
 ### Import Errors
 
-**Problem**: `ModuleNotFoundError: No module named 'emager_tools'`
+**Problem**: `ModuleNotFoundError: No module named 'emagerlib'`
 
 **Solutions**:
 ```bash
@@ -166,7 +166,7 @@ pip uninstall emagerpy
 pip install -e .
 
 # 2. Check installation
-pip show emagerpy
+pip show emagerlib
 
 # 3. Verify Python environment
 python -c "import sys; print(sys.path)"

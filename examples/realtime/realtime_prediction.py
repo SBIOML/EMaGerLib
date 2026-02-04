@@ -15,12 +15,12 @@ from libemg.streamers import emager_streamer
 from libemg.filtering import Filter
 from libemg.environments.controllers import ClassifierController
 
-import emager_tools.models.models as etm
-import emager_tools.utils.utils as eutils
-from emager_tools.visualization.realtime_gui import RealTimeGestureUi
-import emager_tools.utils.gestures_json as gjutils
-from emager_tools.config.load_config import load_config
-from emager_tools.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
+import emagerlib.models.models as etm
+import emagerlib.utils.utils as eutils
+from emagerlib.visualization.realtime_gui import RealTimeGestureUi
+import emagerlib.utils.gestures_json as gjutils
+from emagerlib.config.load_config import load_config
+from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
 
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"

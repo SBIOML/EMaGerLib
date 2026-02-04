@@ -1,4 +1,4 @@
-# emagerpy
+# EMaGerLib
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -29,7 +29,7 @@ A comprehensive toolbox for working with the EMaGer v1 and v3 EMG acquisition de
 
 ## Overview
 
-**emagerpy** is a Python-based framework designed for electromyographic (EMG) signal processing, machine learning-based gesture recognition, and prosthetic hand control. Built on top of [libemg](https://github.com/libemg/libemg), it provides a complete pipeline from data collection to real-time control of prosthetic devices.
+**EMaGerLib** is a Python-based framework designed for electromyographic (EMG) signal processing, machine learning-based gesture recognition, and prosthetic hand control. Built on top of [libemg](https://github.com/libemg/libemg), it provides a complete pipeline from data collection to real-time control of prosthetic devices.
 
 ## Key Features
 
@@ -42,7 +42,7 @@ A comprehensive toolbox for working with the EMaGer v1 and v3 EMG acquisition de
 
 ## How It Works
 
-**emagerpy** provides a complete workflow from data collection to prosthetic control, built on top of [libemg](https://github.com/libemg/libemg) with custom extensions for EMaGer hardware.
+**EMaGerLib** provides a complete workflow from data collection to prosthetic control, built on top of [libemg](https://github.com/libemg/libemg) with custom extensions for EMaGer hardware.
 
 <div align="center">
   <img src="docs/images/workflow.png" alt="Complete Workflow" width="750"/>
@@ -56,7 +56,7 @@ The library integrates with libemg's core components and our custom **EMaGer Str
   <img src="docs/images/structure.png" alt="Software Layers" width="550"/>
 </div>
 
-emagerpy sits between libemg (foundation) and your application. Simply import emagerpy and add your custom configuration.
+EMaGerLib sits between libemg (foundation) and your application. Simply import emagerlib and add your custom configuration.
 
 ## Installation
 
@@ -141,7 +141,7 @@ emager-realtime-control
 
 ## Configuration
 
-emagerpy uses a flexible configuration system supporting multiple formats:
+EMaGerLib uses a flexible configuration system supporting multiple formats:
 
 - **Python (`.py`)** - Most flexible, allows code execution and computed values
 - **YAML (`.yaml`)** - Human-readable, ideal for version control
@@ -241,8 +241,8 @@ emager-live-64ch
 ## Project Structure
 
 ```
-emagerpy/
-├── emager_tools/           # Core library modules
+EMaGerLib/
+├── emagerlib/              # Core library modules
 │   ├── config/             # Configuration management
 │   ├── control/            # Prosthetic hand control interfaces
 │   ├── models/             # Neural network models (EmagerCNN)
@@ -271,18 +271,18 @@ Comprehensive documentation is available in the `docs/` directory:
 
 ## Development Workflows
 
-### Using emagerpy as-is
+### Using EMaGerLib as-is
 
 **Best for**: Standard EMG projects with custom configurations only
 
-Install emagerpy and use provided commands with your configuration. No code modification needed.
+Install EMaGerLib and use provided commands with your configuration. No code modification needed.
 
 ```bash
 pip install -e .
 emager-screen-training -c my_config.py
 ```
 
-### Extending emagerpy
+### Extending EMaGerLib
 
 **Best for**: Adding new features (controllers, models, visualizations)
 
@@ -295,18 +295,18 @@ pip install -e .
 ```
 
 Add your modules to:
-- `emager_tools/control/` - New prosthetic interfaces
-- `emager_tools/models/` - Custom models
-- `emager_tools/visualization/` - Visualization tools
-- `emager_tools/utils/` - Utility functions
+- `emagerlib/control/` - New prosthetic interfaces
+- `emagerlib/models/` - Custom models
+- `emagerlib/visualization/` - Visualization tools
+- `emagerlib/utils/` - Utility functions
 
 ### Modifying libemg Integration
 
-**Best for**: Changing how emagerpy interacts with libemg
+**Best for**: Changing how EMaGerLib interacts with libemg
 
 You can either:
-- **Fork and clone libemg locally** and install it in editable mode, then install emagerpy on top
-- **Modify emagerpy's wrapper code** in files that interact with libemg
+- **Fork and clone libemg locally** and install it in editable mode, then install EMaGerLib on top
+- **Modify EMaGerLib's wrapper code** in files that interact with libemg
 
 For complete development guidelines, see the [Development Guide](docs/DEVELOPMENT.md).
 
@@ -364,8 +364,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 If you use this software in your research, please cite:
 
 ```bibtex
-@software{emagerpy2025,
-  title = {emagerpy: EMG Signal Processing and Prosthetic Control Toolbox},
+@software{emagerlib2025,
+  title = {EMaGerLib: EMG Signal Processing and Prosthetic Control Toolbox},
   author = {Michaud, Étienne},
   year = {2025},
   organization = {Smart Biomedical Microsystems Laboratory},

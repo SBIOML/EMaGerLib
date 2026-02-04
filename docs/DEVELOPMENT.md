@@ -1,6 +1,6 @@
 # Development Guide
 
-Guide for contributing to and extending emagerpy.
+Guide for contributing to and extending EMaGerLib.
 
 ## Table of Contents
 
@@ -14,7 +14,7 @@ Guide for contributing to and extending emagerpy.
 
 ## Development Workflows
 
-### 1. Using emagerpy as-is
+### 1. Using EMaGerLib as-is
 
 **For**: Standard EMG projects with custom configurations only
 
@@ -28,7 +28,7 @@ emager-screen-training -c my_config.py
 
 **No code modification needed** - just configure and use.
 
-### 2. Extending emagerpy
+### 2. Extending EMaGerLib
 
 **For**: Adding new features (controllers, models, visualizations)
 
@@ -40,10 +40,10 @@ pip install -e .
 ```
 
 **Add modules to**:
-- `emager_tools/control/` - New prosthetic interfaces
-- `emager_tools/models/` - Custom models
-- `emager_tools/visualization/` - Visualization tools
-- `emager_tools/utils/` - Utility functions
+- `emagerlib/control/` - New prosthetic interfaces
+- `emagerlib/models/` - Custom models
+- `emagerlib/visualization/` - Visualization tools
+- `emagerlib/utils/` - Utility functions
 
 ### 3. Modifying core functionality
 
@@ -59,7 +59,7 @@ git clone https://github.com/libemg/libemg.git
 cd libemg
 pip install -e .
 
-# Then emagerpy
+# Then EMaGerLib
 cd ../emagerpy
 pip install -e .
 ```
@@ -102,8 +102,8 @@ pip install sphinx sphinx-rtd-theme
 ### Directory Structure
 
 ```
-emagerpy/
-├── emager_tools/              # Core library
+EMaGerLib/
+├── emagerlib/                 # Core library
 │   ├── config/                # Configuration system
 │   │   ├── core_config.py     # Config dataclass
 │   │   ├── load_config.py     # Load Python/YAML/JSON
@@ -134,22 +134,22 @@ emagerpy/
 
 ### Key Components
 
-**Configuration System** (`emager_tools/config/`):
+**Configuration System** (`emagerlib/config/`):
 - Loads Python/YAML/JSON configs
 - Validates and type-checks
 - Saves used configurations
 
-**Control Interfaces** (`emager_tools/control/`):
+**Control Interfaces** (`emagerlib/control/`):
 - Abstract base class for hand controllers
 - Implementations for specific hands
 - Serial/BLE communication
 
-**Models** (`emager_tools/models/`):
+**Models** (`emagerlib/models/`):
 - CNN architecture for gesture recognition
 - PyTorch Lightning integration
 - Model loading and inference
 
-**Utilities** (`emager_tools/utils/`):
+**Utilities** (`emagerlib/utils/`):
 - Argument parsing
 - Model discovery
 - Gesture management
@@ -162,8 +162,8 @@ emagerpy/
 **Step 1**: Create controller file
 
 ```python
-# emager_tools/control/my_hand.py
-from emager_tools.control.abstract_hand_control import AbstractHandControl
+# emagerlib/control/my_hand.py
+from emagerlib.control.abstract_hand_control import AbstractHandControl
 
 class MyHandControl(AbstractHandControl):
     def __init__(self, port="COM3"):
@@ -183,7 +183,7 @@ class MyHandControl(AbstractHandControl):
 **Step 2**: Use in your script
 
 ```python
-from emager_tools.control.my_hand import MyHandControl
+from emagerlib.control.my_hand import MyHandControl
 
 hand = MyHandControl(port="COM5")
 hand.send_command(2)  # Hand close
@@ -195,7 +195,7 @@ hand.close()
 **Step 1**: Create model file
 
 ```python
-# emager_tools/models/my_model.py
+# emagerlib/models/my_model.py
 import torch.nn as nn
 
 class MyCustomModel(nn.Module):
@@ -211,7 +211,7 @@ class MyCustomModel(nn.Module):
 **Step 2**: Add to training script
 
 ```python
-from emager_tools.models.my_model import MyCustomModel
+from emagerlib.models.my_model import MyCustomModel
 
 model = MyCustomModel(input_size=64*200, num_classes=5)
 # Use in your training pipeline
@@ -222,7 +222,7 @@ model = MyCustomModel(input_size=64*200, num_classes=5)
 **Step 1**: Create visualization file
 
 ```python
-# emager_tools/visualization/my_viz.py
+# emagerlib/visualization/my_viz.py
 import matplotlib.pyplot as plt
 
 def visualize_predictions(predictions, true_labels):
@@ -233,7 +233,7 @@ def visualize_predictions(predictions, true_labels):
 **Step 2**: Use in examples
 
 ```python
-from emager_tools.visualization.my_viz import visualize_predictions
+from emagerlib.visualization.my_viz import visualize_predictions
 
 # In your script
 visualize_predictions(preds, labels)
@@ -241,7 +241,7 @@ visualize_predictions(preds, labels)
 
 ### Adding Utility Functions
 
-Add to `emager_tools/utils/utils.py`:
+Add to `emagerlib/utils/utils.py`:
 
 ```python
 def my_utility_function(data):
@@ -285,7 +285,7 @@ Create test file `tests/test_my_feature.py`:
 
 ```python
 import unittest
-from emager_tools.my_module import my_function
+from emagerlib.my_module import my_function
 
 class TestMyFeature(unittest.TestCase):
     def test_basic_functionality(self):
@@ -338,13 +338,13 @@ def process_emg_data(data: List[float], window_size: int = 200) -> Optional[List
 
 ```bash
 # Format with black
-black emager_tools/
+black emagerlib/
 
 # Check with flake8
-flake8 emager_tools/ --max-line-length=100
+flake8 emagerlib/ --max-line-length=100
 
 # Type checking
-mypy emager_tools/ --ignore-missing-imports
+mypy emagerlib/ --ignore-missing-imports
 ```
 
 ## Contributing

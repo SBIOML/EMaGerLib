@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 import tempfile
 import shutil
-from emager_tools.utils.find_models import find_models, find_last_model
+from emagerlib.utils.find_models import find_models, find_last_model
 
 
 class TestFindModels(unittest.TestCase):

@@ -7,11 +7,11 @@ from pathlib import Path
 import logging
 
 from examples.realtime.realtime_prediction import predicator
-import emager_tools.utils.utils as eutils
-import emager_tools.utils.gestures_json as gjutils
-from emager_tools.control.interface_control import InterfaceControl
-from emager_tools.config.load_config import load_config
-from emager_tools.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
+import emagerlib.utils.utils as eutils
+import emagerlib.utils.gestures_json as gjutils
+from emagerlib.control.interface_control import InterfaceControl
+from emagerlib.config.load_config import load_config
+from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
 
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"

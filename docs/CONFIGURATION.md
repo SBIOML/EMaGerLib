@@ -1,6 +1,6 @@
 # Configuration Guide
 
-Complete guide to configuring emagerpy for EMG projects.
+Complete guide to configuring EMaGerLib for EMG projects.
 
 ## Table of Contents
 
@@ -12,7 +12,7 @@ Complete guide to configuring emagerpy for EMG projects.
 
 ## Configuration Formats
 
-emagerpy supports three formats with automatic detection:
+EMaGerLib supports three formats with automatic detection:
 
 ### Python (.py)
 

@@ -1,7 +1,7 @@
 """Test suite for control constants"""
 
 import unittest
-from emager_tools.control.constants import Finger, Gesture, PIN_SERVO
+from emagerlib.control.constants import Finger, Gesture, PIN_SERVO
 
 
 class TestConstants(unittest.TestCase):

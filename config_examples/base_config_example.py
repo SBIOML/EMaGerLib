@@ -6,7 +6,7 @@ SESSION = "D1"
 MEDIA_PATH = "./media-test/"
 MODEL_NAME = None # Note: MODEL_NAME will find the last model if set to None but you can hardcode it 
 # or put your own function in the config.py file
-# import emager_tools.utils.find_models as futils
+# import emagerlib.utils.find_models as futils
 # MODEL_NAME = futils.find_last_model(str(BASE_PATH), SESSION)
 # MODEL_NAME = "libemg_torch_cnn_D0_974_25-10-20_15h03.pth"
 

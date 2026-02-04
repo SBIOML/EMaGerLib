@@ -8,8 +8,8 @@ import time
 from pathlib import Path
 from argparse import Namespace
 
-from emager_tools.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
-from emager_tools.config.load_config import load_config
+from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
+from emagerlib.config.load_config import load_config
 
 
 class TestArgumentParser(unittest.TestCase):
@@ -260,7 +260,7 @@ class TestConfigSaving(unittest.TestCase):
         self.assertGreater(len(saved_files), 0)
         
         # Verify it's valid YAML and can be loaded back
-        from emager_tools.config.load_config import load_config
+        from emagerlib.config.load_config import load_config
         loaded = load_config(saved_files[0])
         self.assertIsNotNone(loaded)
         self.assertEqual(loaded.SESSION, self.config.SESSION)

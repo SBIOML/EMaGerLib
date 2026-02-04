@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import shutil
 import json
-from emager_tools.utils.gestures_json import (
+from emagerlib.utils.gestures_json import (
     get_images_list,
     get_images_folder,
     get_gestures_dict,

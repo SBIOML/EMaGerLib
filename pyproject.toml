@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "emager_tools"
+name = "emagerlib"
 version = "0.1.0"
 requires-python = ">=3.8"
 description = "A comprehensive toolbox for working with the EMaGer v1 and v3 EMG acquisition devices, featuring real-time gesture recognition and prosthetic hand control capabilities."
@@ -74,6 +74,6 @@ emager-run-tests = "tests.run_all_tests:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["emager_tools*", "examples*", "tests*"]
+include = ["emagerlib*", "examples*", "tests*"]
 exclude = ["configs*", "config_examples*", "lightning_logs*"]
 

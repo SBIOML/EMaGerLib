@@ -4,8 +4,8 @@ import unittest
 import tempfile
 import shutil
 from pathlib import Path
-from emager_tools.config.load_config import load_config
-from emager_tools.config.save_config import save_config
+from emagerlib.config.load_config import load_config
+from emagerlib.config.save_config import save_config
 
 
 class TestConfigSystem(unittest.TestCase):

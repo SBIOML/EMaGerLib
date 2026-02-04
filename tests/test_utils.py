@@ -3,8 +3,8 @@
 import unittest
 import numpy as np
 from pathlib import Path
-from emager_tools.utils.majority_vote import MajorityVote, majority_vote
-from emager_tools.utils.utils import get_transform_decimation, print_packet
+from emagerlib.utils.majority_vote import MajorityVote, majority_vote
+from emagerlib.utils.utils import get_transform_decimation, print_packet
 
 
 class TestMajorityVote(unittest.TestCase):

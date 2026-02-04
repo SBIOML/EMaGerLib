@@ -2,10 +2,10 @@ import time
 from pathlib import Path
 import logging
 
-from emager_tools.control.interface_control import InterfaceControl
-from emager_tools.utils.utils import print_packet
-from emager_tools.config.load_config import load_config
-from emager_tools.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
+from emagerlib.control.interface_control import InterfaceControl
+from emagerlib.utils.utils import print_packet
+from emagerlib.config.load_config import load_config
+from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
 
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"

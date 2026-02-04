@@ -1,4 +1,4 @@
-"""Centralized argument parser for emagerpy examples"""
+"""Centralized argument parser for EMaGerLib examples"""
 
 import argparse
 import logging

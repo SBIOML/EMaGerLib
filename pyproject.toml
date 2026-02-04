@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "emager_tools"
 version = "0.1.0"
 requires-python = ">=3.8"
-description = "This is a toolbox to work with the EMaGer v1 and v3 and more. This uses libemg as backend for EMG acquisition and processing."
+description = "A comprehensive toolbox for working with the EMaGer v1 and v3 EMG acquisition devices, featuring real-time gesture recognition and prosthetic hand control capabilities."
 readme = "README.md"
 authors = [
     {name = "Étienne Michaud", email = "etmic6@ulaval.ca"},
@@ -51,7 +51,7 @@ dev = [
 
 [project.scripts]
 # Data collection
-emager-sgt = "examples.data_collection.screen_guided_trainning:main"
+emager-screen-training = "examples.data_collection.screen_guided_trainning:main"
 
 # Hand control
 emager-test-hand = "examples.hand_control.test_hand_control:main"

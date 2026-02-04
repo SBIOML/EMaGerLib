@@ -1,42 +1,62 @@
 # emagerpy
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+
 > **Note**: This project replaces the previous `emager-py` repository with improved architecture, enhanced features, and better maintainability.
 
-
 A comprehensive toolbox for working with the EMaGer v1 and v3 EMG acquisition devices, featuring real-time gesture recognition and prosthetic hand control capabilities.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [How It Works](#how-it-works)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Available Commands](#available-commands)
+- [Testing](#testing)
+- [Development Workflows](#development-workflows)
+- [Project Structure](#project-structure)
+- [Documentation](#documentation)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
+- [Citation](#citation)
+- [Contact](#contact)
 
 ## Overview
 
 **emagerpy** is a Python-based framework designed for electromyographic (EMG) signal processing, machine learning-based gesture recognition, and prosthetic hand control. Built on top of [libemg](https://github.com/libemg/libemg), it provides a complete pipeline from data collection to real-time control of prosthetic devices.
 
-### Key Features
+## Key Features
 
 - **Real-time Gesture Recognition**: Advanced CNN-based models with quantization support for efficient inference
 - **Prosthetic Hand Control**: Native support for Psyonic and other prosthetic hands via serial communication
 - **Data Collection & Training**: Screen-guided training sessions with configurable gesture sets
 - **Visualization Tools**: Real-time 64-channel EMG visualization and monitoring
-- **Flexible Configuration**: YAML and Python-based configuration system
+- **Flexible Configuration**: Python, YAML, and JSON-based configuration system
 - **EMaGer Hardware Support**: Compatible with EMaGer v1 and v3 devices
 
-## Project Structure
+## How It Works
 
-```
-emagerpy/
-├── emager_tools/         # Core library modules
-│   ├── config/             # Configuration management
-│   ├── control/            # Prosthetic hand control interfaces
-│   ├── models/             # Neural network models (EmagerCNN)
-│   ├── utils/              # Utility functions and helpers
-│   └── visualization/      # Real-time GUI and plotting tools
-├── examples/           # Executable scripts
-│   ├── data_collection/    # Data collection scripts
-│   ├── hand_control/       # Hand control tests scripts
-│   ├── realtime/           # Real-time prediction and control
-│   ├── training/           # Model training scripts
-│   └── visualisation/      # Visualization tools
-├── config_examples/      # Example configuration files
-├── tests/                # Unit tests
-```
+**emagerpy** provides a complete workflow from data collection to prosthetic control, built on top of [libemg](https://github.com/libemg/libemg) with custom extensions for EMaGer hardware.
+
+<div align="center">
+  <img src="docs/images/workflow.png" alt="Complete Workflow" width="750"/>
+</div>
+
+The library integrates with libemg's core components and our custom **EMaGer Streamer** to provide a 6-step pipeline: **Configuration → Visualize → Data Collection → Train Model → Real-time Prediction → Hand Control**. See the [Quick Start](#quick-start) section for details on each step.
+
+### Architecture
+
+<div align="center">
+  <img src="docs/images/structure.png" alt="Software Layers" width="550"/>
+</div>
+
+emagerpy sits between libemg (foundation) and your application. Simply import emagerpy and add your custom configuration.
 
 ## Installation
 
@@ -46,7 +66,7 @@ emagerpy/
 - Windows/Linux/MacOS
 - EMaGer v1/v3 hardware (for real data acquisition)
 
-### Using pip (Recommended)
+### Quick Install
 
 ```bash
 # Clone the repository
@@ -57,62 +77,34 @@ cd emagerpy
 pip install -e .
 ```
 
-### Alternative Installation Methods
+This installs the package with all dependencies and makes console commands available globally.
 
-Install with specific libemg versions:
-
-```bash
-# Latest development version from GitHub
-pip install -e ".[latest]" --force-reinstall --no-deps libemg
-
-# Fork version with EMaGer v3 support
-pip install -e ".[fork]" --force-reinstall --no-deps libemg
-
-# Local development version
-pip install -e ".[local]" --force-reinstall --no-deps libemg
-```
-
-### Manual Installation
+### Alternative: Manual Installation
 
 ```bash
 pip install -r requirements.txt
 ```
 
+> **Note**: For advanced installation options (development versions, forks, local builds), see the [Installation Guide](docs/INSTALLATION.md).
 
 ## Quick Start
 
-> **Note**: After installing with `pip install -e .`, you can use short console commands (e.g., `emager-screen-training`) or run scripts directly with Python (e.g., `python examples/...`). See the [Console Commands](#available-console-commands) table below for the complete list.
+> **Tip**: After installing with `pip install -e .`, you can use short console commands (e.g., `emager-screen-training`) or run scripts directly (e.g., `python examples/data_collection/screen_guided_trainning.py`).
 
-> **Command-Line Arguments**: All commands support extensive command-line arguments for configuration, logging, and runtime control. See the [Command-Line Arguments](#command-line-arguments) section for details.
+> **Command-Line Arguments**: All commands support extensive configuration options. See the [CLI Guide](docs/CLI.md) for details.
 
 ### 1. Configure Your Setup
 
-Copy and modify the example configuration:
+Copy the example configuration file [base_config_example.py](config_examples/base_config_example.py) to your project directory and modify it for your needs (paths, gesture classes, etc.).
 
-```python
-# config_examples/base_config_example.py
-from pathlib import Path
+More in [Configuration](#configuration) section. 
 
-BASE_PATH = Path("./Datasets/")
-SESSION = "D1"
-MEDIA_PATH = "./media-test/"
-
-# Gesture classes: hand_close, hand_open, index extension, ok, thumbs up
-CLASSES = [2, 3, 30, 14, 18]
-NUM_CLASSES = 5
-WINDOW_SIZE = 200
-SAMPLING = 1010
-```
 ### 2. Visualize EMG Signals
 
 Monitor real-time 64-channel EMG data:
 
 ```bash
-# Using console command
 emager-live-64ch
-
-# Or using direct Python execution
-python examples/visualisation/live_64_channel.py
 ```
 
 ### 3. Data Collection
@@ -120,11 +112,7 @@ python examples/visualisation/live_64_channel.py
 Run a screen-guided training session:
 
 ```bash
-# Using console command
 emager-screen-training
-
-# Or using direct Python execution
-python examples/data_collection/screen_guided_trainning.py
 ```
 
 ### 4. Train a Model
@@ -132,11 +120,7 @@ python examples/data_collection/screen_guided_trainning.py
 Train a CNN on collected EMG data:
 
 ```bash
-# Using console command
 emager-train-cnn
-
-# Or using direct Python execution
-python examples/training/train_cnn.py
 ```
 
 ### 5. Real-time Prediction
@@ -144,11 +128,7 @@ python examples/training/train_cnn.py
 Test gesture recognition in real-time:
 
 ```bash
-# Using console command
 emager-realtime-predict
-
-# Or using direct Python execution
-python examples/realtime/realtime_prediction.py
 ```
 
 ### 6. Control a Prosthetic Hand
@@ -156,310 +136,217 @@ python examples/realtime/realtime_prediction.py
 Run real-time control with a connected prosthetic:
 
 ```bash
-# Using console command
 emager-realtime-control
-
-# Or using direct Python execution
-python examples/realtime/realtime_control.py
 ```
 
 ## Configuration
 
-> **Note**: For simple configuration, refer to [base_config_example.py](config_examples/base_config_example.py). You can create custom config files and add extra variables as needed. For advanced configuration or core modifications, see the detailed documentation below.
+emagerpy uses a flexible configuration system supporting multiple formats:
 
-### Understanding the Configuration System
+- **Python (`.py`)** - Most flexible, allows code execution and computed values
+- **YAML (`.yaml`)** - Human-readable, ideal for version control
+- **JSON (`.json`)** - Machine-readable, good for automation (used for automatic config saving)
 
-The configuration system uses a structured approach with automatic validation and type checking defined in [emager_tools/config/core_config.py](emager_tools/config/core_config.py).
+### Getting Started
 
-**Important**: Configuration variable names are defined in `core_config.py` and **cannot be renamed** in your custom config files without modifying `core_config.py` (not recommended). The system validates all parameters against the `CoreConfig` dataclass.
+1. **Copy the example configuration**: Use [base_config_example.py](config_examples/base_config_example.py) as a template
+2. **Edit for your project**: Modify paths, gesture classes, and parameters
+3. **Use with any command**:
+   ```bash
+   emager-train-cnn -c my_config.py
+   ```
 
-#### Variable Types
+### Key Configuration Parameters
 
-1. **Mandatory Variables**: Must be defined in your config file. Missing mandatory variables will cause errors.
-2. **Optional Variables**: Have default values in `core_config.py` or can be computed (e.g., `CONFIG_FILE_NAME`).
-3. **Extra Variables**: Any additional variables you define are stored in the `EXTRA` dictionary and accessible via dot notation.
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `BASE_PATH` | Root directory for datasets | `Path("./Datasets/")` |
+| `SESSION` | Session identifier | `"D1"` |
+| `CLASSES` | Gesture class IDs | `[2, 3, 30, 14, 18]` |
+| `WINDOW_SIZE` | EMG window size (samples) | `200` |
+| `SAMPLING` | Sampling rate (Hz) | `1010` |
+| `MODEL_NAME` | Model filename (or `None` to auto-detect) | `None` |
 
-### Mandatory Configuration Parameters
+### Learn More
 
-All configuration files must define the following parameters:
-
-#### Paths
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `BASE_PATH` | `Path` | Root directory for datasets and models |
-| `SESSION` | `str` | Session identifier (creates subdirectory under BASE_PATH) |
-| `MEDIA_PATH` | `str` | Path to gesture images/media for libemg (autogenerated) |
-| `MODEL_NAME` | `str` or `None` | Model filename or `None` to auto-detect last model |
-
-#### Gesture/Classes Configuration
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `CLASSES` | `List[int]` | List of gesture IDs to use (e.g., [2, 3, 30, 14, 18]) |
-| `NUM_CLASSES` | `int` | Total number of gesture classes |
-| `NUM_REPS` | `int` | Number of repetitions per gesture during data collection |
-| `REP_TIME` | `int` | Duration (seconds) for each gestures |
-| `REST_TIME` | `int` | Rest duration (seconds) between each gestures |
-
-#### Data Acquisition and Model Parameters
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `MAJORITY_VOTE` | `int` | Number of consecutive predictions for majority voting |
-| `WINDOW_SIZE` | `int` | EMG window size in samples |
-| `WINDOW_INCREMENT` | `int` | Window sliding increment in samples |
-| `EPOCH` | `int` | Number of training epochs |
-| `SAMPLING` | `int` | Sampling rate in Hz (e.g., 1010 for EMaGerV1 and 2000 for V3) |
-| `FILTER` | `bool` | Enable/disable signal filtering |
-| `VIRTUAL` | `bool` | Use virtual/simulated EMG device (Not implemented)|
-| `PORT` | `str` or `None` | Serial port for hardware connection (None for auto) |
-
-#### Controller and Predictor Settings
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `USE_GUI` | `bool` | Enable graphical user interface for realtime control |
-| `POLL_SLEEP_DELAY` | `float` | Sleep time (seconds) to prevent busy-waiting when polling |
-| `PREDICTOR_DELAY` | `float` | Prediction update frequency (seconds) |
-| `PREDICTOR_TIMEOUT_DELAY` | `float` | Timeout (seconds) when waiting for predictions |
-| `SMOOTH_WINDOW` | `int` | Smoothing window size (set to 1 to disable) |
-| `SMOOTH_METHOD` | `str` | Smoothing method: `'mode'` (categorical) or `'mean'` (numeric) |
-| `HEARTBEAT_INTERVAL` | `float` | Interval (seconds) for re-sending last gesture to maintain connection |
-
-### Computed Properties
-
-The following are automatically computed and do not need to be defined, but can be changed:
-
-- `SESSION_PATH`: `BASE_PATH / SESSION`
-- `SAVE_PATH`: Same as `SESSION_PATH`
-- `DATAFOLDER`: Same as `SESSION_PATH`
-- `DATASETS_PATH`: Same as `SESSION_PATH`
-- `MODEL_PATH`: Automatically finds the last model if `MODEL_NAME` is `None`
+- [Configuration Guide](docs/CONFIGURATION.md) - Complete configuration documentation
+- [base_config_example.py](config_examples/base_config_example.py) - Python configuration template
+- [base_config_example.yaml](config_examples/base_config_example.yaml) - YAML configuration template
 
 
-###
->**Note** : Example configuration can be found here [config_examples/base_config_example.py](config_examples/base_config_example.py)
+## Available Commands
 
-### Using Custom Configuration Files
+After installing with `pip install -e .`, the following commands are available system-wide:
 
-All example scripts support specifying a custom configuration file via command-line arguments:
+| Command | Description |
+|---------|-------------|
+| `emager-screen-training` | Screen-guided data collection |
+| `emager-train-cnn` | Train CNN model |
+| `emager-realtime-predict` | Real-time gesture prediction |
+| `emager-realtime-control` | Real-time prosthetic control |
+| `emager-live-64ch` | Live 64-channel EMG visualization |
+| `emager-test-hand` | Test hand control interface |
+| `emager-test-psyonic` | Test Psyonic hand |
+| `emager-test-wave` | Test hand wave gestures |
+| `emager-visualize-libemg` | Visualize with libemg |
+| `emager-run-tests` | Run complete test suite |
+
+### Basic Usage
 
 ```bash
-# Using the -c flag (short form)
-emager-train-cnn -c path/to/my_config.py
-emager-realtime-predict -c sessions/session_D2.json
+# Use default configuration
+emager-train-cnn
 
-# Using --config flag (long form)
-emager-sgt --config my_custom_config.yaml
+# Use custom configuration
+emager-train-cnn -c my_config.py
 
-# Without specifying a config (uses default)
-emager-train-cnn  # Uses config_examples/base_config_example.py
+# With debug logging
+emager-realtime-predict --log-level DEBUG
+
+# Save configuration after run
+emager-train-cnn --save-config-name experiment_01
 ```
 
-**Supported config formats:**
-- `.py` - Python config files
-- `.json` - JSON config files  
-- `.yaml` or `.yml` - YAML config files
-
-The configuration file type is automatically detected based on the file extension.
+> **Note**: All commands support the same set of command-line arguments for configuration, logging, and config saving. See the [CLI Guide](docs/CLI.md) for complete details.
 
 ## Testing
 
 Run the complete test suite:
 
 ```bash
-# Using console command (recommended)
 emager-run-tests
-
-# Or using direct Python execution
-python tests/run_all_tests.py
 ```
 
 The test suite includes:
-- **Configuration System**: Loading/saving configs (Python, JSON, YAML)
-- **Utility Functions**: Majority voting, transform decimation, packet printing
-- **Model Finding**: Discovering and sorting model files
-- **Constants**: Gesture and finger definitions
-- **Gesture JSON**: Image and gesture dictionary utilities
+- Configuration system (loading/saving Python, JSON, YAML)
+- Utility functions (majority voting, decimation)
+- Model discovery and sorting
+- Gesture definitions and constants
 
-Test individual components:
+### Test Individual Components
 
 ```bash
-# Test hand control (console command)
+# Test hand control
 emager-test-hand
 
-# Test Psyonic hand (console command)
+# Test Psyonic hand
 emager-test-psyonic
 
-# Test hand wave (console command)
-emager-test-wave
-
-# Visualize EMG signals (console command)
+# Visualize EMG signals
 emager-live-64ch
-
-# Or use direct Python execution
-python examples/hand_control/test_hand_control.py
-python examples/hand_control/test_psyonic_hand.py
-python examples/visualisation/live_64_channel.py
 ```
 
-## Command-Line Arguments
+## Project Structure
 
-All example scripts support a comprehensive set of command-line arguments for flexible configuration and control.
+```
+emagerpy/
+├── emager_tools/           # Core library modules
+│   ├── config/             # Configuration management
+│   ├── control/            # Prosthetic hand control interfaces
+│   ├── models/             # Neural network models (EmagerCNN)
+│   ├── utils/              # Utility functions and helpers
+│   └── visualization/      # Real-time GUI and plotting tools
+├── examples/               # Executable scripts
+│   ├── data_collection/    # Data collection scripts
+│   ├── hand_control/       # Hand control tests
+│   ├── realtime/           # Real-time prediction and control
+│   ├── training/           # Model training scripts
+│   └── visualisation/      # Visualization tools
+├── config_examples/        # Example configuration files
+├── tests/                  # Unit tests
+└── docs/                   # Documentation
+```
 
-### Configuration Loading
+## Documentation
 
-| Argument | Type | Description | Example |
-|----------|------|-------------|---------|
-| `-c, --config` | `PATH` | Configuration file to load (Python, JSON, or YAML) | `--config my_config.yaml` |
+Comprehensive documentation is available in the `docs/` directory:
 
-**Default**: `config_examples/base_config_example.py`
+- [Configuration Guide](docs/CONFIGURATION.md) - Complete configuration system documentation
+- [CLI Guide](docs/CLI.md) - Command-line arguments and usage examples
+- [Development Guide](docs/DEVELOPMENT.md) - Contributing, extending, and modifying emagerpy
+- [Installation Guide](docs/INSTALLATION.md) - Advanced installation options
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Solutions to common problems
 
-### Logging Arguments
+## Development Workflows
 
-Control logging behavior with fine-grained options that **override** config file settings:
+### Using emagerpy as-is
 
-| Argument | Type | Description | Example |
-|----------|------|-------------|---------|
-| `--log-level` | `LEVEL` | Set logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `--log-level DEBUG` |
-| `--log-to-file` | Flag | Enable file logging (overrides config) | `--log-to-file` |
-| `--no-log-to-file` | Flag | Disable file logging (overrides config) | `--no-log-to-file` |
-| `--log-file-path` | `PATH` | Exact path for log file | `--log-file-path ./logs/my_run.log` |
-| `--log-file-name` | `NAME` | Custom log filename (timestamp auto-added) | `--log-file-name training_session` |
+**Best for**: Standard EMG projects with custom configurations only
 
-**Priority**: Command-line args > Config file > System defaults
+Install emagerpy and use provided commands with your configuration. No code modification needed.
 
-**Example**:
 ```bash
-# Enable DEBUG logging to file with custom name
-emager-train-cnn --log-level DEBUG --log-to-file --log-file-name cnn_training
-
-# Disable file logging even if config enables it
-emager-realtime-predict --no-log-to-file --log-level WARNING
+pip install -e .
+emager-screen-training -c my_config.py
 ```
 
-### Config Saving Arguments
+### Extending emagerpy
 
-Save the loaded configuration for reproducibility:
+**Best for**: Adding new features (controllers, models, visualizations)
 
-| Argument | Type | Description | Example |
-|----------|------|-------------|---------|
-| `--save-config-path` | `PATH` | Path to save config file | `--save-config-path ./configs/run_config.json` |
-| `--save-config-name` | `NAME` | Custom config filename (timestamp auto-added) | `--save-config-name experiment_01` |
-| `--save-config-format` | `FORMAT` | Output format: `json` or `yaml` | `--save-config-format yaml` |
+Clone and install in editable mode, then add custom modules:
 
-**Example**:
 ```bash
-# Save loaded config as YAML with custom name
-emager-train-cnn --save-config-name training_run_01 --save-config-format yaml
-
-# Save to specific path
-emager-realtime-control --save-config-path ./experiments/control_config.json
+git clone https://github.com/SBIOML/emagerpy.git
+cd emagerpy
+pip install -e .
 ```
 
-### Configuration Priority
+Add your modules to:
+- `emager_tools/control/` - New prosthetic interfaces
+- `emager_tools/models/` - Custom models
+- `emager_tools/visualization/` - Visualization tools
+- `emager_tools/utils/` - Utility functions
 
-The system uses a **three-tier priority system** for all configurable parameters:
+### Modifying libemg Integration
 
-1. **Command-line arguments** (highest priority - when explicitly provided)
-2. **Config file values** (loaded from the specified config file)
-3. **System defaults** (hardcoded fallbacks)
+**Best for**: Changing how emagerpy interacts with libemg
 
-This allows maximum flexibility: define defaults in config files and override specific settings per run via command-line.
+You can either:
+- **Fork and clone libemg locally** and install it in editable mode, then install emagerpy on top
+- **Modify emagerpy's wrapper code** in files that interact with libemg
 
-### Config File Integration
+For complete development guidelines, see the [Development Guide](docs/DEVELOPMENT.md).
 
-Add logging and config-saving defaults to your config files:
+## Troubleshooting
 
-**Python config** (`config.py`):
-```python
-# Logging configuration
-LOG_LEVEL = "INFO"              # DEBUG, INFO, WARNING, ERROR, CRITICAL
-LOG_TO_FILE = True              # Enable file logging by default
-LOG_FILE_PATH = None            # None for auto-generated path
-LOG_FILE_NAME = "training"      # Custom log name (timestamp added)
+### Common Issues
 
-# Config saving defaults
-SAVE_CONFIG_PATH = None         # None for default location (./saved_configs/)
-SAVE_CONFIG_NAME = "session"    # Custom config name (timestamp added)
-SAVE_CONFIG_FORMAT = "json"     # json or yaml
-```
+**EMaGer device not detected**
+- Check USB connection and drivers
+- Verify device appears in system (Windows: Device Manager, Linux: `lsusb`)
+- Try different USB ports
 
-**YAML config** (`config.yaml`):
-```yaml
-# Logging configuration
-LOG_LEVEL: "INFO"
-LOG_TO_FILE: true
-LOG_FILE_NAME: "training"
+**Import errors after installation**
+- Reinstall in editable mode: `pip install -e .`
+- Check Python version: `python --version` (must be >= 3.8)
+- Verify all dependencies are installed: `pip list`
 
-# Config saving defaults
-SAVE_CONFIG_FORMAT: "yaml"
-```
+**Model training crashes**
+- Reduce `BATCH_SIZE` in config if out of memory
+- Ensure sufficient training data collected
+- Check log files for detailed error messages
 
-### Usage Examples
+**Real-time control lag**
+- Reduce `WINDOW_SIZE` for faster response
+- Close unnecessary applications
+- Consider model quantization for performance
 
-**Basic usage**:
-```bash
-# Use default config
-emager-train-cnn
+For comprehensive troubleshooting, see the [Troubleshooting Guide](docs/TROUBLESHOOTING.md). You can also check [GitHub Issues](https://github.com/SBIOML/emagerpy/issues) for known problems and solutions.
 
-# Use custom config
-emager-train-cnn -c sessions/session_D2.yaml
-```
+## Contributing
 
-**With logging control**:
-```bash
-# Debug mode with file logging
-emager-realtime-predict --log-level DEBUG --log-to-file
+We welcome contributions! Whether it's bug reports, feature requests, or code contributions:
 
-# Custom log location
-emager-screen-training --log-file-path ./experiment_logs/collection.log
+1. **Report bugs** via [GitHub Issues](https://github.com/SBIOML/emagerpy/issues)
+2. **Request features** by opening an issue with the "enhancement" label
+3. **Submit code** via pull requests (see [Development Guide](docs/DEVELOPMENT.md))
 
-# Named log file (will create: training_20260203_143015.log)
-emager-train-cnn --log-file-name training --log-to-file
-```
-
-**Save configuration for reproducibility**:
-```bash
-# Save config after training
-emager-train-cnn --save-config-name trained_model_config
-
-# Save as YAML to specific directory
-emager-realtime-control -c control.py --save-config-path ./configs/control.yaml
-```
-
-**Combined example**:
-```bash
-# Complete reproducible training run
-emager-train-cnn \
-  -c my_config.py \
-  --log-level DEBUG \
-  --log-to-file \
-  --log-file-name cnn_training \
-  --save-config-name cnn_experiment_01 \
-  --save-config-format yaml
-```
-
-This will:
-- Load `my_config.py`
-- Enable DEBUG logging to file `./logs/cnn_training_TIMESTAMP.log`
-- Save the config to `./saved_configs/cnn_experiment_01_TIMESTAMP.yaml`
-
-## Available Console Commands
-
-After installing with `pip install -e .`, the following commands are available.
-
-**Note**: All commands support the full set of [command-line arguments](#command-line-arguments) described above.
-
-| Command | Description | Python Alternative |
-|---------|-------------|-------------------|
-| `emager-sgt` | Screen-guided data collection | `python examples/data_collection/screen_guided_trainning.py` |
-| `emager-test-hand` | Test hand control interface | `python examples/hand_control/test_hand_control.py` |
-| `emager-test-wave` | Test hand wave gestures | `python examples/hand_control/test_hand_wave.py` |
-| `emager-test-psyonic` | Test Psyonic hand | `python examples/hand_control/test_psyonic_hand.py` |
-| `emager-realtime-control` | Real-time prosthetic control | `python examples/realtime/realtime_control.py` |
-| `emager-realtime-predict` | Real-time gesture prediction | `python examples/realtime/realtime_prediction.py` |
-| `emager-train-cnn` | Train CNN model | `python examples/training/train_cnn.py` |
-| `emager-visualize-libemg` | Visualize with libemg | `python examples/visualisation/libemg_visualize.py` |
-| `emager-live-64ch` | Live 64-channel visualization | `python examples/visualisation/live_64_channel.py` |
-| `emager-run-tests` | Run complete test suite | `python tests/run_all_tests.py` |
+Before contributing code:
+- Read the [Development Guide](docs/DEVELOPMENT.md)
+- Run tests with `emager-run-tests`
+- Follow existing code style
+- Document your changes
 
 ## License
 
@@ -469,12 +356,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Built on top of [libemg](https://github.com/libemg/libemg)
 - Developed by the Smart Biomedical Microsystems Laboratory (SBIOML)
-
-## Contact
-
-**Author**: Étienne Michaud  
-**Email**: etmic6@ulaval.ca  
-**Organization**: Smart Biomedical Microsystems Laboratory
 
 ## Citation
 
@@ -489,3 +370,14 @@ If you use this software in your research, please cite:
   license = {MIT}
 }
 ```
+
+## Contact
+
+**Author**: Étienne Michaud  
+**Email**: etmic6@ulaval.ca  
+**Organization**: Smart Biomedical Microsystems Laboratory  
+**GitHub**: [SBIOML/emagerpy](https://github.com/SBIOML/emagerpy)
+
+---
+
+**Need help?** Check the [documentation](docs/) or [open an issue](https://github.com/SBIOML/emagerpy/issues).

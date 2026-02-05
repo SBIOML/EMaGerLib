@@ -85,7 +85,7 @@ This installs the package with all dependencies and makes console commands avail
 pip install -r requirements.txt
 ```
 
-> **Note**: For advanced installation options (development versions, forks, local builds), see the [Installation Guide](docs/INSTALLATION.md).
+> **Note**: For troubleshooting and advanced setup, see the [Troubleshooting Guide](docs/TROUBLESHOOTING.md).
 
 ## Quick Start
 
@@ -289,9 +289,7 @@ Comprehensive documentation is available in the `docs/` directory:
 
 - [Configuration Guide](docs/CONFIGURATION.md) - Complete configuration system documentation
 - [CLI Guide](docs/CLI.md) - Command-line arguments and usage examples
-- [Development Guide](docs/DEVELOPMENT.md) - Contributing, extending, and modifying EMaGerLib
-- [Installation Guide](docs/INSTALLATION.md) - Advanced installation options
-- [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Solutions to common problems
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Installation, hardware, development, and solutions to common problems
 
 ## Development Workflows
 
@@ -332,7 +330,7 @@ You can either:
 - **Fork and clone libemg locally** and install it in editable mode, then install EMaGerLib on top
 - **Modify EMaGerLib's wrapper code** in files that interact with libemg
 
-For complete development guidelines, see the [Development Guide](docs/DEVELOPMENT.md).
+For complete development guidelines, see the [Troubleshooting Guide](docs/TROUBLESHOOTING.md).
 
 ## Troubleshooting
 
@@ -366,10 +364,10 @@ We welcome contributions! Whether it's bug reports, feature requests, or code co
 
 1. **Report bugs** via [GitHub Issues](https://github.com/SBIOML/EMaGerLib/issues)
 2. **Request features** by opening an issue with the "enhancement" label
-3. **Submit code** via pull requests (see [Development Guide](docs/DEVELOPMENT.md))
+3. **Submit code** via pull requests (see [Troubleshooting Guide](docs/TROUBLESHOOTING.md))
 
 Before contributing code:
-- Read the [Development Guide](docs/DEVELOPMENT.md)
+- Read the [Troubleshooting Guide](docs/TROUBLESHOOTING.md)
 - Run tests with `emager-run-tests`
 - Follow existing code style
 - Document your changes

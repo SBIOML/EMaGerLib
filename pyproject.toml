@@ -50,6 +50,9 @@ dev = [
 ]
 
 [project.scripts]
+# Main entry point
+emager = "examples.main:main"
+
 # Data collection
 emager-screen-training = "examples.data_collection.screen_guided_trainning:main"
 

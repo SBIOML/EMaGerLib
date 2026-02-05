@@ -28,7 +28,7 @@ MEDIA_PATH = "./media-test/"
 CLASSES = [2, 3, 30, 14, 18]
 NUM_CLASSES = 5
 WINDOW_SIZE = 200
-SAMPLING = 1010
+SAMPLING = 1008
 ```
 
 **Advantages**: Execute Python code, use imports, add computed values
@@ -45,7 +45,7 @@ MEDIA_PATH: "./media-test/"
 CLASSES: [2, 3, 30, 14, 18]
 NUM_CLASSES: 5
 WINDOW_SIZE: 200
-SAMPLING: 1010
+SAMPLING: 1008
 ```
 
 **Advantages**: Human-readable, easy to edit, good for version control
@@ -62,7 +62,7 @@ SAMPLING: 1010
   "CLASSES": [2, 3, 30, 14, 18],
   "NUM_CLASSES": 5,
   "WINDOW_SIZE": 200,
-  "SAMPLING": 1010
+  "SAMPLING": 1008
 }
 ```
 
@@ -95,7 +95,7 @@ SAMPLING: 1010
 |-----------|------|-------------|---------|
 | `WINDOW_SIZE` | int | EMG window size (samples) | `200` |
 | `WINDOW_INCREMENT` | int | Window sliding increment (samples) | `10` |
-| `SAMPLING` | int | Sampling rate (Hz) - 1010 for v1, 2000 for v3 | `1010` |
+| `SAMPLING` | int | Sampling rate (Hz) - 1010 for v1, 2000 for v3 | `1008` |
 | `FILTER` | bool | Enable signal filtering | `False` |
 | `MAJORITY_VOTE` | int | Consecutive predictions for majority voting | `30` |
 
@@ -189,7 +189,7 @@ REST_TIME = 1
 # ===== Signal Processing ===== #
 WINDOW_SIZE = 200
 WINDOW_INCREMENT = 10
-SAMPLING = 1010
+SAMPLING = 1008
 FILTER = False
 MAJORITY_VOTE = 30
 

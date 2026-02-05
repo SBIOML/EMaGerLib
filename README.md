@@ -166,7 +166,7 @@ EMaGerLib uses a flexible configuration system supporting multiple formats:
 | `SESSION` | Session identifier | `"D1"` |
 | `CLASSES` | Gesture class IDs | `[2, 3, 30, 14, 18]` |
 | `WINDOW_SIZE` | EMG window size (samples) | `200` |
-| `SAMPLING` | Sampling rate (Hz) | `1010` |
+| `SAMPLING` | Sampling rate (Hz) | `1008` |
 | `MODEL_NAME` | Model filename (or `None` to auto-detect) | `None` |
 
 ### Learn More

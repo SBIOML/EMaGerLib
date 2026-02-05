@@ -34,6 +34,9 @@ COMMANDS: Dict[str, Tuple[str, str]] = {
     # Visualization
     "visualize-libemg": ("examples.visualisation.libemg_visualize", "main"),
     "live-64ch": ("examples.visualisation.live_64_channel", "main"),
+    
+    # Tests
+    "run-tests": ("tests.run_all_tests", "main"),
 }
 
 
@@ -64,6 +67,9 @@ Available commands:
   Visualization:
     visualize-libemg   Visualize with libemg tools
     live-64ch          Live 64-channel EMG visualization
+  
+  Testing:
+    run-tests          Run complete test suite
 
 Examples:
   emager train-cnn --config my_config.py

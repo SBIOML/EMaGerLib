@@ -44,7 +44,7 @@ def run_predicator_process(conn: Connection=None):
 def run_controller_process(conn: Connection=None):
     try:
         
-        comm_controller = InterfaceControl(hand_type="psyonic")
+        comm_controller = InterfaceControl(hand_type="psyonic", cfg=cfg)
         comm_controller.connect()
         
         gestures_dict = gjutils.get_gestures_dict(cfg.MEDIA_PATH)

@@ -1,7 +1,7 @@
-from src.control.abstract_hand_control import HandInterface
-from src.control.serial_com import SerialCommunication
-from src.control.gesture_decoder import decode_gesture
-from src.utils.utils import print_packet
+from emagerlib.control.abstract_hand_control import HandInterface
+from emagerlib.control.serial_com import SerialCommunication
+from emagerlib.control.gesture_decoder import decode_gesture
+from emagerlib.utils.utils import print_packet
 import serial
 import time
 import struct
@@ -36,9 +36,12 @@ class PsyonicHandControl(HandInterface):
         Initialize the Psyonic hand controller.
         
         Args:
-            baudrate (int): Serial communication baudrate (default: 115200)
+            address (int): I2C address (default: 0x50)
+            baudrate (int): Serial communication baudrate (default: 460800)
             port (str): Serial port to connect to (e.g., 'COM3' on Windows)
                        If None, will try to auto-detect USB to TTL device
+            stuffing (bool): Use byte stuffing in protocol (default: True)
+            print_debug (bool): Print debug messages (default: False)
         """
         self.address = address
         self.port = port
@@ -47,6 +50,7 @@ class PsyonicHandControl(HandInterface):
         self.connected = False
         self.stuffing = stuffing
         self.print_debug = print_debug
+        self.media_path = setup_gestures(media_path)  # Setup and cache gestures
 
     def connect(self):
         """Connect to the Psyonic hand via serial communication."""
@@ -90,7 +94,7 @@ class PsyonicHandControl(HandInterface):
             raise RuntimeError("Not connected to Psyonic hand")
             
         # Get finger positions from our gesture decoder
-        thumb_pos, index_pos, middle_pos, ring_pos, little_pos, thumb_rotation_pos = decode_gesture(gesture)
+        thumb_pos, index_pos, middle_pos, ring_pos, little_pos, thumb_rotation_pos = decode_gesture(gesture, self.media_path)
         
         # Scale positions from 0-1500 to 0-150 for Psyonic hand
         positions = [

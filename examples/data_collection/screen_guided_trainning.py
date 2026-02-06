@@ -56,7 +56,7 @@ def main():
     gui = GUI(odh, args=args, debug=False, width=900, height=800)
     gui.download_gestures(cfg.CLASSES, cfg.MEDIA_PATH, download_gifs=False)
 
-    dataset_path = os.path.abspath(cfg.DATAFOLDER + "/")
+    dataset_path = os.path.abspath(str(cfg.DATAFOLDER))
 
     # Ensure folder exists
     if not os.path.exists(dataset_path):
@@ -110,3 +110,6 @@ def main():
     gui.start_gui()
 
     logger.info(f"Data saved in: {cfg.DATAFOLDER}")
+    
+if __name__ == "__main__":
+    main()

@@ -50,7 +50,6 @@ class PsyonicHandControl(HandInterface):
         self.connected = False
         self.stuffing = stuffing
         self.print_debug = print_debug
-        self.media_path = setup_gestures(media_path)  # Setup and cache gestures
 
     def connect(self):
         """Connect to the Psyonic hand via serial communication."""
@@ -94,7 +93,7 @@ class PsyonicHandControl(HandInterface):
             raise RuntimeError("Not connected to Psyonic hand")
             
         # Get finger positions from our gesture decoder
-        thumb_pos, index_pos, middle_pos, ring_pos, little_pos, thumb_rotation_pos = decode_gesture(gesture, self.media_path)
+        thumb_pos, index_pos, middle_pos, ring_pos, little_pos, thumb_rotation_pos = decode_gesture(gesture)
         
         # Scale positions from 0-1500 to 0-150 for Psyonic hand
         positions = [

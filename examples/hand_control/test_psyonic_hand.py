@@ -4,7 +4,7 @@ from pathlib import Path
 from ah_wrapper import AHSerialClient
 import logging
 
-from emagerlib.control.gesture_decoder import decode_gesture
+from emagerlib.control.gesture_decoder import decode_gesture, setup_gesture_decoder
 from emagerlib.utils.utils import print_packet
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 # Save config if requested (uses logging internally)
 save_config_if_requested(args, cfg, script_name="test_psyonic_hand")
+
+# Setup gesture decoder with config
+setup_gesture_decoder(cfg)
 
 logger.info("Loading hand control test...")
 

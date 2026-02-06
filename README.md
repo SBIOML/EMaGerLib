@@ -89,7 +89,7 @@ pip install -r requirements.txt
 
 ## Quick Start
 
-> **Tip**: After installing with `pip install -e .`, you can use short console commands (e.g., `emager-screen-training`) or run scripts directly (e.g., `python examples/data_collection/screen_guided_trainning.py`).
+> **Tip**: After installing with `pip install -e .`, you can use the unified `emager` command (e.g., `emager train-cnn`), individual commands (e.g., `emager-train-cnn`), or run scripts directly (e.g., `python examples/training/train_cnn.py`).
 
 > **Command-Line Arguments**: All commands support extensive configuration options. See the [CLI Guide](docs/CLI.md) for details.
 
@@ -104,7 +104,7 @@ More in [Configuration](#configuration) section.
 Monitor real-time 64-channel EMG data:
 
 ```bash
-emager-live-64ch
+emager live-64ch
 ```
 
 ### 3. Data Collection
@@ -112,7 +112,7 @@ emager-live-64ch
 Run a screen-guided training session:
 
 ```bash
-emager-screen-training
+emager screen-training
 ```
 
 ### 4. Train a Model
@@ -120,7 +120,7 @@ emager-screen-training
 Train a CNN on collected EMG data:
 
 ```bash
-emager-train-cnn
+emager train-cnn
 ```
 
 ### 5. Real-time Prediction
@@ -128,7 +128,7 @@ emager-train-cnn
 Test gesture recognition in real-time:
 
 ```bash
-emager-realtime-predict
+emager realtime-predict
 ```
 
 ### 6. Control a Prosthetic Hand
@@ -136,7 +136,7 @@ emager-realtime-predict
 Run real-time control with a connected prosthetic:
 
 ```bash
-emager-realtime-control
+emager realtime-control
 ```
 
 ## Configuration
@@ -153,7 +153,7 @@ EMaGerLib uses a flexible configuration system supporting multiple formats:
 2. **Edit for your project**: Modify paths, gesture classes, and parameters
 3. **Use with any command**:
    ```bash
-   emager-train-cnn -c my_config.py
+   emager train-cnn -c my_config.py
    ```
 
 > **Note**: If you change path parameters (like `BASE_PATH` or `MEDIA_PATH`), update `.gitignore` accordingly to avoid committing large data files. See the [Configuration Guide](docs/CONFIGURATION.md) for details.
@@ -180,33 +180,57 @@ EMaGerLib uses a flexible configuration system supporting multiple formats:
 
 After installing with `pip install -e .`, the following commands are available system-wide:
 
+### Unified Entry Point
+
+The `emager` command provides a unified interface to all EMaGer commands:
+
+```bash
+# Show all available commands
+emager
+emager --help
+
+# Run any command using the unified interface
+emager train-cnn --config my_config.py
+emager screen-training
+emager realtime-predict --log-level DEBUG
+```
+
+### Individual Commands
+
+For backward compatibility, all commands are also available with their full names:
+
 | Command | Description |
 |---------|-------------|
-| `emager-screen-training` | Screen-guided data collection |
-| `emager-train-cnn` | Train CNN model |
-| `emager-realtime-predict` | Real-time gesture prediction |
-| `emager-realtime-control` | Real-time prosthetic control |
-| `emager-live-64ch` | Live 64-channel EMG visualization |
-| `emager-test-hand` | Test hand control interface |
-| `emager-test-psyonic` | Test Psyonic hand |
-| `emager-test-wave` | Test hand wave gestures |
-| `emager-visualize-libemg` | Visualize with libemg |
-| `emager-run-tests` | Run complete test suite |
+| `emager screen-training` | Screen-guided data collection |
+| `emager train-cnn` | Train CNN model |
+| `emager realtime-predict` | Real-time gesture prediction |
+| `emager realtime-control` | Real-time prosthetic control |
+| `emager live-64ch` | Live 64-channel EMG visualization |
+| `emager test-hand` | Test hand control interface |
+| `emager test-psyonic` | Test Psyonic hand |
+| `emager test-wave` | Test hand wave gestures |
+| `emager visualize-libemg` | Visualize with libemg |
+| `emager run-tests` | Run complete test suite |
 
 ### Basic Usage
 
 ```bash
 # Use default configuration
+emager train-cnn
+# or
 emager-train-cnn
 
 # Use custom configuration
-emager-train-cnn -c my_config.py
+emager train-cnn -c my_config.py
 
 # With debug logging
-emager-realtime-predict --log-level DEBUG
+emager realtime-predict --log-level DEBUG
 
 # Save configuration after run
-emager-train-cnn --save-config-name experiment_01
+emager train-cnn --save-config-name experiment_01
+
+# Get help for a specific command
+emager train-cnn --help
 ```
 
 > **Note**: All commands support the same set of command-line arguments for configuration, logging, and config saving. See the [CLI Guide](docs/CLI.md) for complete details.

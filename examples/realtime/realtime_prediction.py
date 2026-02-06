@@ -7,6 +7,7 @@ from multiprocessing import Lock
 from multiprocessing.connection import Connection
 from pathlib import Path
 import logging
+import sys
 
 from libemg.data_handler import OnlineDataHandler
 from libemg.emg_predictor import EMGClassifier, OnlineEMGClassifier
@@ -127,12 +128,22 @@ def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.0
 
     # Verify model loading and state dict compatibility
     model = etm.EmagerCNN((4, 16), cfg.NUM_CLASSES, -1)
-    logger.info(f"Loading model from: {cfg.cfg.MODEL_PATH}")
+    
+    if cfg.MODEL_PATH is None:
+        logger.error(f"No model found in {cfg.SESSION_PATH}. Please train a model first or specify MODEL_NAME in config.")
+        logger.error(f"You can train a model using: emager-train-cnn -c <config_file>")
+        sys.exit(1)
+    
+    logger.info(f"Loading model from: {cfg.MODEL_PATH}")
     try:
         model.load_state_dict(torch.load(cfg.MODEL_PATH))
         model.eval()
     except RuntimeError as e:
         logger.error(f"Error loading model: {e}")
+        sys.exit(1)
+    except FileNotFoundError as e:
+        logger.error(f"Model file not found: {cfg.MODEL_PATH}")
+        sys.exit(1)
 
     classi = EMGClassifier(model)
     classi.add_majority_vote(cfg.MAJORITY_VOTE)

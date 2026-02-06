@@ -1,19 +1,25 @@
 # from control.zeus_control import ZeusControl
 # from control.smart_hand_control import SmartHandControl
-from src.control.psyonic_control import PsyonicHandControl
+from emagerlib.control.psyonic_control import PsyonicHandControl
+from emagerlib.control.gesture_decoder import setup_gesture_decoder
 
 class InterfaceControl:
-    def __init__(self, hand_type, **kwargs):
+    def __init__(self, hand_type, cfg=None, **kwargs):
         """
         Initialize the interface control with the specified hand type.
         
         Args:
             hand_type (str): Type of hand to use ("zeus" or "smart" or "psyonic")
+            cfg: Configuration object with MEDIA_PATH. If provided, sets up gesture decoder.
             **kwargs: Additional arguments to pass to the hand controller
         """
         self.hand_type = hand_type.lower()
         self.hand = None
         self.kwargs = kwargs
+        
+        # Setup gesture decoder if config is provided
+        if cfg is not None:
+            setup_gesture_decoder(cfg)
         
         self.initialize_hand()
 

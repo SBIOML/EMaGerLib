@@ -105,7 +105,7 @@ def main():
     logger.info(f"Current time: {current_time}")
 
     # Save the model
-    model_path = f"{cfg.SAVE_PATH}libemg_torch_cnn_{cfg.SESSION}_{acc}_{current_time}.pth"
+    model_path = Path(cfg.SAVE_PATH) / f"libemg_torch_cnn_{cfg.SESSION}_{acc}_{current_time}.pth"
     torch.save(classifier.state_dict(), model_path)
     logger.info(f"Model saved at {model_path}")
 

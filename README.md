@@ -199,18 +199,18 @@ emager realtime-predict --log-level DEBUG
 
 For backward compatibility, all commands are also available with their full names:
 
-| Command | Unified Command | Description |
-|---------|----------------|-------------|
-| `emager-screen-training` | `emager screen-training` | Screen-guided data collection |
-| `emager-train-cnn` | `emager train-cnn` | Train CNN model |
-| `emager-realtime-predict` | `emager realtime-predict` | Real-time gesture prediction |
-| `emager-realtime-control` | `emager realtime-control` | Real-time prosthetic control |
-| `emager-live-64ch` | `emager live-64ch` | Live 64-channel EMG visualization |
-| `emager-test-hand` | `emager test-hand` | Test hand control interface |
-| `emager-test-psyonic` | `emager test-psyonic` | Test Psyonic hand |
-| `emager-test-wave` | `emager test-wave` | Test hand wave gestures |
-| `emager-visualize-libemg` | `emager visualize-libemg` | Visualize with libemg |
-| `emager-run-tests` | `emager run-tests` | Run complete test suite |
+| Command | Description |
+|---------|-------------|
+| `emager screen-training` | Screen-guided data collection |
+| `emager train-cnn` | Train CNN model |
+| `emager realtime-predict` | Real-time gesture prediction |
+| `emager realtime-control` | Real-time prosthetic control |
+| `emager live-64ch` | Live 64-channel EMG visualization |
+| `emager test-hand` | Test hand control interface |
+| `emager test-psyonic` | Test Psyonic hand |
+| `emager test-wave` | Test hand wave gestures |
+| `emager visualize-libemg` | Visualize with libemg |
+| `emager run-tests` | Run complete test suite |
 
 ### Basic Usage
 

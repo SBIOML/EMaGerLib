@@ -11,6 +11,7 @@ Example:
 
 import sys
 from typing import Dict, Tuple
+from emagerlib.utils.arg_parser import create_parser
 
 
 # Map command names to their module paths and main function names
@@ -80,6 +81,14 @@ For help on a specific command:
   emager <command> --help
 """
     print(help_text)
+    
+    # Also show common options available to all commands
+    print("\nCommon options available to all commands:\n")
+    
+    parser = create_parser(description="")
+    parser.prog = "emager <command>"
+    parser.print_help()
+    print()
 
 
 def main():
@@ -102,6 +111,18 @@ def main():
         print(f"Error: Unknown command '{command}'")
         print(f"\nRun 'emager --help' to see available commands.")
         sys.exit(1)
+    
+    # Check for help flag early to avoid loading modules unnecessarily
+    if any(arg in ['-h', '--help'] for arg in sys.argv[2:]):
+        # Create a parser with the standard common arguments
+        parser = create_parser(
+            description=f"Run {command} command"
+        )
+        parser.prog = f"emager {command}"
+        
+        # Display help and exit
+        parser.print_help()
+        sys.exit(0)
     
     # Get module and function name
     module_path, func_name = COMMANDS[command]

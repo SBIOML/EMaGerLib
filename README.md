@@ -68,12 +68,28 @@ EMaGerLib sits between libemg (foundation) and your application. Simply import e
 
 ### Quick Install
 
+**Step 1: Clone the repository**
+
 ```bash
-# Clone the repository
 git clone https://github.com/SBIOML/EMaGerLib.git
 cd EMaGerLib
+```
 
-# Install in development mode
+**Step 2: Create and activate a virtual environment (recommended)**
+
+```bash
+# Windows
+python -m venv venv
+venv\Scripts\activate
+
+# Linux/MacOS
+python3 -m venv venv
+source venv/bin/activate
+```
+
+**Step 3: Install the package**
+
+```bash
 pip install -e .
 ```
 

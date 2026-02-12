@@ -13,6 +13,7 @@ from libemg.filtering import Filter
 import emagerlib.models.models as etm
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
+import time
 
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
@@ -82,7 +83,9 @@ def main():
 
     # pause for visualize features
     features_data = {"key": train_data}
-    fe.visualize_feature_space(features_data, "PCA", classes=train_labels)
+    fe.visualize_feature_space(features_data, "PCA", classes=train_labels, render=False)
+    
+    logger.info(f"Training features: {train_data.shape}, Testing features: {test_data.shape}")
 
     train_dl = DataLoader(
         TensorDataset(torch.from_numpy(train_data.astype(np.float32)), torch.from_numpy(train_labels)),

@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emagerlib"
+version = "0.1.0"
+requires-python = ">=3.8"
+description = "A comprehensive toolbox for working with the EMaGer v1 and v3 EMG acquisition devices, featuring real-time gesture recognition and prosthetic hand control capabilities."
+readme = "README.md"
+authors = [
+    {name = "Étienne Michaud", email = "etmic6@ulaval.ca"},
+]
+license = {text = "MIT"}
+dependencies = [
+    # Add your dependencies here from requirements.txt
+    "libemg", 
+    "torch",
+    "lightning",
+    "brevitas",
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "pandas",
+    "scikit-learn",
+    "pyserial",
+    "pyqt5",
+    "pyqt6",
+    "pyqtgraph",
+    "PyOpenGL", #optimize visualization
+    "ability-hand"
+]
+
+[project.optional-dependencies]
+# Override with latest branch (requires --force-reinstall --no-deps libemg)
+latest = [
+    "libemg @ git+https://github.com/libemg/libemg.git@latest#egg=libemg",
+]
+# Override with GitHub fork (requires --force-reinstall --no-deps libemg)
+fork = [
+    "libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3#egg=libemg",
+]
+# Override with local version (requires --force-reinstall --no-deps libemg)
+local = [
+    "libemg @ file:///C:/GIT/libemg-fork", # Change this path to your local libemg-fork path
+]
+dev = [
+    # Add developer dependencies here
+    "unittest",
+]
+
+[project.scripts]
+# Main entry point
+emager = "examples.main:main"
+
+# Data collection
+emager-screen-training = "examples.data_collection.screen_guided_trainning:main"
+
+# Hand control
+emager-test-hand = "examples.hand_control.test_hand_control:main"
+emager-test-wave = "examples.hand_control.test_hand_wave:main"
+emager-test-psyonic = "examples.hand_control.test_psyonic_hand:main"
+
+# Realtime
+emager-realtime-control = "examples.realtime.realtime_control:main"
+emager-realtime-predict = "examples.realtime.realtime_prediction:main"
+
+# Training
+emager-train-cnn = "examples.training.train_cnn:main"
+
+# Visualization
+emager-visualize-libemg = "examples.visualisation.libemg_visualize:main"
+emager-live-64ch = "examples.visualisation.live_64_channel:main"
+
+# Tests
+emager-run-tests = "tests.run_all_tests:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["emagerlib*", "examples*", "tests*"]
+exclude = ["configs*", "config_examples*", "lightning_logs*"]
+

@@ -1,8 +1,22 @@
 # App specifics
+TODO.txt
 *.log
+
+### ===============CONFIGURABLE==================== ###
+### CHANGE OR ADD HERE IF YOU MODIFY IN CONFIG FILE ###
+logs/ 
+media-test/ 
+Datasets/    
+saved_configs/  
+### =============================================== ###
+
+# PyTorch Lightning logs (auto generated)
 lightning_logs/
-media-test/
-Datasets/
+# Psyonic configuration file (auto-generated)
+config.py  
+
+# VS Code
+.vscode/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -12,7 +12,6 @@ import sys
 from libemg.data_handler import OnlineDataHandler
 from libemg.emg_predictor import EMGClassifier, OnlineEMGClassifier
 from libemg.feature_extractor import FeatureExtractor
-from libemg.streamers import emager_streamer
 from libemg.filtering import Filter
 from libemg.environments.controllers import ClassifierController
 
@@ -22,6 +21,7 @@ from emagerlib.visualization.realtime_gui import RealTimeGestureUi
 import emagerlib.utils.gestures_json as gjutils
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
+from emagerlib.utils.streamer_utils import get_emager_streamer
 
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
@@ -109,7 +109,7 @@ def update_labels_process(stop_event:threading.Event, gui:RealTimeGestureUi, con
 def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.01, timeout_delay:float=0.5):
 
     # Create data handler and streamer
-    p, smi = emager_streamer()
+    p, smi = get_emager_streamer(cfg.EMAGER_VERSION)
     logger.info(f"Streamer created: process: {p}, smi : {smi}")
     odh = OnlineDataHandler(shared_memory_items=smi)
 

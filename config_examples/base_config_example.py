@@ -27,6 +27,7 @@ SAMPLING = 1008
 FILTER = False
 VIRTUAL = False
 PORT = None
+EMAGER_VERSION = "v3.0"  # EMaGer device version ("v1.0", "v1.1", or "v3.0")
 
 # ===== Controller and predictor settings ===== #
 USE_GUI = False

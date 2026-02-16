@@ -30,6 +30,7 @@ class CoreConfig:
     FILTER: bool
     VIRTUAL: bool
     PORT: str
+    EMAGER_VERSION: str
 
     # ===== CONTROLLER AND PREDICTOR SETTINGS ===== #
     USE_GUI: bool

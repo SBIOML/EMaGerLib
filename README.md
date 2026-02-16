@@ -95,6 +95,8 @@ pip install -e .
 
 This installs the package with all dependencies and makes console commands available globally.
 
+> **Note**: The package automatically installs the required `emager-v3` branch of the libemg fork, which provides support for both EMaGer v1 and v3 devices.
+
 ### Alternative: Manual Installation
 
 ```bash
@@ -112,6 +114,13 @@ pip install -r requirements.txt
 ### 1. Configure Your Setup
 
 Copy the example configuration file [base_config_example.py](config_examples/base_config_example.py) to your project directory and modify it for your needs (paths, gesture classes, etc.).
+
+**Important**: Set the `EMAGER_VERSION` parameter to match your EMaGer device:
+- `"v3.0"` for EMaGer v3 devices (default)
+- `"v1.0"` for EMaGer v1.0 devices
+- `"v1.1"` for EMaGer v1.1 devices
+
+This ensures the correct data streamer is used for your hardware.
 
 More in [Configuration](#configuration) section. 
 
@@ -184,6 +193,7 @@ EMaGerLib uses a flexible configuration system supporting multiple formats:
 | `WINDOW_SIZE` | EMG window size (samples) | `200` |
 | `SAMPLING` | Sampling rate (Hz) | `1008` |
 | `MODEL_NAME` | Model filename (or `None` to auto-detect) | `None` |
+| `EMAGER_VERSION` | EMaGer device version | `"v3.0"`, `"v1.0"`, or `"v1.1"` |
 
 ### Learn More
 

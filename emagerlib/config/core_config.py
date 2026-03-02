@@ -34,12 +34,11 @@ class CoreConfig:
 
     # ===== CONTROLLER AND PREDICTOR SETTINGS ===== #
     USE_GUI: bool
-    POLL_SLEEP_DELAY: float
+    CONTROLLER_POLL_RATE: float
     PREDICTOR_DELAY: float
     PREDICTOR_TIMEOUT_DELAY: float
     SMOOTH_WINDOW: int
     SMOOTH_METHOD: str
-    HEARTBEAT_INTERVAL: float
 
     # ===== LOGGING CONFIGURATION ===== #
     LOG_LEVEL: str = "INFO"

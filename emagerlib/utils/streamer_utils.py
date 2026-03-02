@@ -26,7 +26,7 @@ def get_emager_streamer(version: str = "v3.0") -> Tuple[Any, Any]:
     if version in ["v1.0", "v1", "1.0", "1"]:
         logger.info("Using EMaGer v1.0 streamer")
         from libemg.streamers import emager_streamer
-        return emager_streamer("v1.0")
+        return emager_streamer()
     elif version in ["v1.1", "1.1"]:
         logger.info("Using EMaGer v1.1 streamer")
         from libemg.streamers import emager_streamer
@@ -43,7 +43,7 @@ def get_emager_streamer(version: str = "v3.0") -> Tuple[Any, Any]:
                 "Falling back to v1.0 streamer."
             )
             from libemg.streamers import emager_streamer
-            return emager_streamer("v1.0")
+            return emager_streamer()
     else:
         raise ValueError(
             f"Unsupported EMaGer version: {version}. "

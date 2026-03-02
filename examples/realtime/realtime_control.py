@@ -53,9 +53,7 @@ def run_controller_process(conn: Connection=None):
         # Main loop to read input from stdin
         logger.info("Communicator waiting for data...")
         recent = deque(maxlen=cfg.SMOOTH_WINDOW)
-        last_gesture = None
-        last_send_time = 0.0
-        heartbeat_interval = cfg.HEARTBEAT_INTERVAL
+        last_sent_gesture = None
 
         while True:
             # Read input from stdin
@@ -110,20 +108,9 @@ def run_controller_process(conn: Connection=None):
                         "timestamp": timestamp
                     }
 
-                # If no new data was received, optionally send a heartbeat (repeat last gesture)
+                # If no new data, sleep and retry
                 if not any_received:
-                    # send heartbeat only if user enabled it and we have a last_gesture
-                    if heartbeat_interval and last_gesture is not None:
-                        if (now - last_send_time) >= heartbeat_interval:
-                            try:
-                                comm_controller.send_gesture(last_gesture)
-                                last_send_time = now
-                                logger.debug(f"Heartbeat: re-sent gesture [{last_gesture}]")
-                            except Exception as e:
-                                logger.error(f"Error sending heartbeat gesture: {e}")
-                    # small sleep to avoid busy waiting but keep responsiveness
-                    time.sleep(cfg.POLL_SLEEP_DELAY)
-                    # continue to next iteration (no new prediction to process)
+                    time.sleep(cfg.CONTROLLER_POLL_RATE)
                     continue
 
             # Exit the loop if no more input is received
@@ -147,15 +134,22 @@ def run_controller_process(conn: Connection=None):
             
             except Exception as e:
                 logger.error(f"Invalid input. Error: {e}")
+                time.sleep(cfg.CONTROLLER_POLL_RATE)
                 continue
-
-            # Send the gesture to the hand
-            try:
-                comm_controller.send_gesture(gesture)
-                last_gesture = gesture
-                last_send_time = time.perf_counter()
-            except Exception as e:
-                logger.error(f"Error sending gesture: {e}")
+            
+            # Only send if gesture changed
+            if gesture != last_sent_gesture:
+                try:
+                    comm_controller.send_gesture(gesture)
+                    last_sent_gesture = gesture
+                    logger.info(f"✓ SENT gesture [{gesture}]")
+                except Exception as e:
+                    logger.error(f"✗ Error sending gesture: {e}", exc_info=True)
+            else:
+                logger.debug(f"Same gesture, skipping send")
+            
+            # Control polling rate
+            time.sleep(cfg.CONTROLLER_POLL_RATE)
             logger.debug("="*50)
             
     except Exception as e:

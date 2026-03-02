@@ -30,13 +30,17 @@ PORT = None
 EMAGER_VERSION = "v3.0"  # EMaGer device version ("v1.0", "v1.1", or "v3.0")
 
 # ===== Controller and predictor settings ===== #
-USE_GUI = False
-POLL_SLEEP_DELAY = 0.001  # Sleep time to prevent busy waiting when polling for data
-PREDICTOR_DELAY = 0.01  # Changes the precision of frequency of predictions
-PREDICTOR_TIMEOUT_DELAY = 0.50  # Timeout for waiting for new predictions
+USE_GUI = True
+
+# Thread speed control (2 independent variables):
+PREDICTOR_DELAY = 0.01          # Thread 1: Predictor speed (seconds between prediction updates)
+CONTROLLER_POLL_RATE = 0.001    # Thread 2: Controller speed (seconds between sending checks)
+
+PREDICTOR_TIMEOUT_DELAY = 0.05  # Min time before processing same prediction again
+
+# Smoothing configuration:
 SMOOTH_WINDOW = 1  # Set to 1 to disable smoothing (always use latest value)
 SMOOTH_METHOD = 'mode'  # 'mode' recommended for categorical gestures; 'mean' for numeric smoothing
-HEARTBEAT_INTERVAL = 0.1  # Heartbeat interval (seconds) for re-sending the last gesture
 
 # ===== Logging configuration ===== #
 LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL

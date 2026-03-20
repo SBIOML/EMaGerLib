@@ -1,5 +1,5 @@
 
-# PINS DEFINITION
+# PINS DEFINITION for 3D printed smart hand
 PIN_SERVO = [
     13, # THUMB
     14, # INDEX
@@ -53,12 +53,3 @@ class Gesture:
     PINKY_EXTENSION = 33
     A_LITTLE = 34
     QUOTES = 35
-
-class Logger:
-    VERBOSE = 0
-    DEBUG = 1
-    INFO = 2
-    WARNING = 3
-    ERROR = 4
-    CRITICAL = 5
-    NOTHING = 6

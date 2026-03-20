@@ -93,17 +93,8 @@ class PsyonicHandControl(HandInterface):
             raise RuntimeError("Not connected to Psyonic hand")
             
         # Get finger positions from our gesture decoder
-        thumb_pos, index_pos, middle_pos, ring_pos, little_pos, thumb_rotation_pos = decode_gesture(gesture)
+        positions = decode_gesture(gesture)
         
-        # Scale positions from 0-1500 to 0-150 for Psyonic hand
-        positions = [
-            int(index_pos / 10),
-            int(middle_pos / 10),
-            int(ring_pos / 10),
-            int(little_pos / 10),
-            int(thumb_pos / 10),
-            int(thumb_rotation_pos / 10)
-        ]
         
         # Send all finger positions in one command
         self._send_finger_positions(positions)

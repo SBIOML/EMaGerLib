@@ -65,18 +65,10 @@ def main():
             gesture = gestures[gesture_id]
             logger.info(f"Sending gesture: {gesture}")
             # Get finger positions from our gesture decoder
-            thumb_pos, index_pos, middle_pos, ring_pos, little_pos, thumb_rotation_pos = decode_gesture(gesture)
-            # Scale positions from 0-1500 to 0-150 for Psyonic hand
-            pos = [
-                int(index_pos / 10),
-                int(middle_pos / 10),
-                int(ring_pos / 10),
-                int(little_pos / 10),
-                int(thumb_pos / 10),
-                int(thumb_rotation_pos / 10)
-            ]
-            logger.debug(f"Setting positions to: {pos}")
-            client.set_position(positions=pos, reply_mode=2)  # Update command
+            positions = decode_gesture(gesture)
+            
+            logger.debug(f"Setting positions to: {positions}")
+            client.set_position(positions=positions, reply_mode=2)  # Update command
             client.send_command()  # Send command
             time.sleep(1 / client.rate_hz)
             

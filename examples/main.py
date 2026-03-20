@@ -24,9 +24,12 @@ COMMANDS: Dict[str, Tuple[str, str]] = {
     "test-hand": ("examples.hand_control.test_hand_control", "main"),
     "test-wave": ("examples.hand_control.test_hand_wave", "main"),
     "test-psyonic": ("examples.hand_control.test_psyonic_hand", "main"),
+    "test-teensy": ("examples.hand_control.test_teensy_hand", "main"),
     
     # Realtime
     "realtime-control": ("examples.realtime.realtime_control", "main"),
+    "realtime-control-teensy": ("examples.realtime.realtime_control_teensy", "main"),
+    "realtime-control-threads": ("examples.realtime.realtime_control_threads", "main"),
     "realtime-predict": ("examples.realtime.realtime_prediction", "main"),
     
     # Training
@@ -57,9 +60,12 @@ Available commands:
     test-hand          Test hand control interface
     test-wave          Test hand wave gestures
     test-psyonic       Test Psyonic hand control
+    test-teensy        Test Teensy-based Psyonic hand control
   
   Real-time:
     realtime-control   Real-time prosthetic hand control
+    realtime-control-teensy  Real-time control via Teensy bridge
+    realtime-control-threads Real-time threaded shared-memory control
     realtime-predict   Real-time gesture prediction
   
   Training:

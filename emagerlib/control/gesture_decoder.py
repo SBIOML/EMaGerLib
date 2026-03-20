@@ -153,6 +153,8 @@ def decode_gesture(gesture):
 
     return thumb_finger_pos, index_finger_pos, middle_finger_pos, ring_finger_pos, little_finger_pos, thumb_rotation_pos
 
+
+# DONE on teensy now
 def decompose_mouvement(
     start_positions: Tuple[int, int, int, int, int, int],
     end_positions: Tuple[int, int, int, int, int, int],
@@ -207,9 +209,6 @@ def decompose_mouvement(
         logger.info("Two-step move: Move thumb to side first, then move fingers and thumb rotation")
     
     return waypoints
-
-
-
 
 def decode_gesture_waypoints(
     current_gesture: int,

@@ -311,108 +311,11 @@ def interactive_command_mode():
         logger.info("="*60)
 
 
-# TODO : fix waypoint generation to handle thumb collision properly and test with actual hand
-# the generation of way point is not quite right yet
-def test_smooth_gesture_waypoints():
-    """Test smooth gesture control with collision-aware waypoints."""
-    logger.info("="*60)
-    logger.info("Testing Smooth Gesture Control with Waypoints")
-    logger.info("="*60)
-    logger.info("")
-    
-    controller = PsyonicTeensyControl(port=args.port, baudrate=args.baudrate)
-    
-    try:
-        controller.connect()
-        logger.info("✓ Connected to Teensy")
-        logger.info("")
-        
-        # Test 1: Single gesture transition with collision avoidance
-        logger.info("-" * 60)
-        logger.info("Test 1: PEACE -> HAND CLOSE (with collision avoidance)")
-        logger.info("-" * 60)
-        
-        start_pos = decode_gesture(Gesture.PEACE)
-        controller.send_finger_positions(start_pos)
-        time.sleep(2)
-        
-        waypoints = decode_gesture_waypoints(
-            current_gesture=Gesture.HAND_CLOSE,
-            last_gesture=Gesture.PEACE,
-            collision_enabled=True,
-        )
-        
-        logger.info(f"Generated {len(waypoints)} waypoints:")
-        for i, wp in enumerate(waypoints):
-            logger.info(f"  Waypoint {i}: Thumb={wp[0]}, Index={wp[1]}, "
-                       f"Middle={wp[2]}, Ring={wp[3]}, Little={wp[4]} rot={wp[5]}")
-        logger.info("")
-        
-        # Move through waypoints
-        for wp_idx, target_waypoint in enumerate(waypoints):
-            logger.info(f"Moving to waypoint {wp_idx}...")
-            
-            # Move directly to this waypoint
-            controller.send_finger_positions(target_waypoint)
-            logger.info(f"  ✓ Reached waypoint {wp_idx}")
-            time.sleep(0.5)
-        
-        logger.info("")
-        time.sleep(3)
-        
-        # Test 2: Test multiple gesture transitions in sequence with collision avoidance
-        logger.info("-" * 60)
-        logger.info("Test 2: Multiple Gesture Sequence with Collision Avoidance")
-        logger.info("-" * 60)
-        gesture_sequence = [Gesture.HAND_OPEN, Gesture.HAND_CLOSE, Gesture.OK, Gesture.PEACE, Gesture.INDEX_EXTENSION, Gesture.THUMBS_UP, Gesture.ROCK_ON]
-        
-        start_pos = decode_gesture(gesture_sequence[0])
-        controller.send_finger_positions(start_pos)
-        time.sleep(2)
-        
-        for i in range(1, len(gesture_sequence)):
-            start_gesture = gesture_sequence[i-1]
-            end_gesture = gesture_sequence[i]
-            
-            logger.info(f"Transition: {start_gesture} -> {end_gesture}")
-            waypoints = decode_gesture_waypoints(
-                current_gesture=end_gesture,
-                last_gesture=start_gesture,
-                collision_enabled=True,
-            )
-            
-            logger.info(f"Generated {len(waypoints)} waypoints for transition {start_gesture} -> {end_gesture}")
-            
-            for wp_idx, target_waypoint in enumerate(waypoints):
-                logger.info(f"  Moving to waypoint {wp_idx} for transition {start_gesture} -> {end_gesture}...")
-                controller.send_finger_positions(target_waypoint)
-                logger.info(f"    ✓ Reached waypoint {wp_idx}")
-                time.sleep(0.5)
-                
-            time.sleep(2)
-        
-        logger.info("")
-        logger.info("="*60)
-        logger.info("Smooth gesture control test completed!")
-        logger.info("="*60)
-        
-    except Exception as e:
-        logger.error(f"Error during waypoint test: {e}", exc_info=True)
-    finally:
-        try:
-            controller.disconnect()
-            logger.info("Disconnected from Teensy")
-        except Exception as e:
-            logger.error(f"Error during disconnect: {e}")
-
-
 if __name__ == "__main__":
     # Route to appropriate test mode
     if args.interactive:
         interactive_command_mode()
     elif args.test_fingers:
         test_individual_fingers()
-    elif args.test_waypoints:
-        test_smooth_gesture_waypoints()
     else:
         main()  # Run main gesture test

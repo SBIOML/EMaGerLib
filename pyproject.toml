@@ -53,25 +53,6 @@ dev = [
 # Main entry point
 emager = "examples.main:main"
 
-# Data collection
-emager-screen-training = "examples.data_collection.screen_guided_trainning:main"
-
-# Hand control
-emager-test-hand = "examples.hand_control.test_hand_control:main"
-emager-test-wave = "examples.hand_control.test_hand_wave:main"
-emager-test-psyonic = "examples.hand_control.test_psyonic_hand:main"
-
-# Realtime
-emager-realtime-control = "examples.realtime.realtime_control:main"
-emager-realtime-predict = "examples.realtime.realtime_prediction:main"
-
-# Training
-emager-train-cnn = "examples.training.train_cnn:main"
-
-# Visualization
-emager-visualize-libemg = "examples.visualisation.libemg_visualize:main"
-emager-live-64ch = "examples.visualisation.live_64_channel:main"
-
 # Tests
 emager-run-tests = "tests.run_all_tests:main"
 

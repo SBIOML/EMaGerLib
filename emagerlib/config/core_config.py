@@ -27,18 +27,20 @@ class CoreConfig:
     WINDOW_INCREMENT: int
     EPOCH: int
     SAMPLING: int
+    TRAIN_REPS: List[int]
+    TEST_REPS: List[int]
     FILTER: bool
     VIRTUAL: bool
     PORT: str
+    EMAGER_VERSION: str
 
     # ===== CONTROLLER AND PREDICTOR SETTINGS ===== #
     USE_GUI: bool
-    POLL_SLEEP_DELAY: float
+    CONTROLLER_POLL_RATE: float
     PREDICTOR_DELAY: float
     PREDICTOR_TIMEOUT_DELAY: float
     SMOOTH_WINDOW: int
     SMOOTH_METHOD: str
-    HEARTBEAT_INTERVAL: float
 
     # ===== LOGGING CONFIGURATION ===== #
     LOG_LEVEL: str = "INFO"

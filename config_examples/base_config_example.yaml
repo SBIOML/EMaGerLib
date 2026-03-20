@@ -18,18 +18,20 @@ WINDOW_SIZE: 200
 WINDOW_INCREMENT: 10
 EPOCH: 10
 SAMPLING: 1008
+TRAIN_REPS: [0, 1, 2]
+TEST_REPS: [3, 4]
 FILTER: false
 VIRTUAL: false
 PORT: null
+EMAGER_VERSION: "v3.0"  # EMaGer device version ("v1.0", "v1.1", or "v3.0")
 
 # ===== Controller and predictor settings =====
 USE_GUI: false
-POLL_SLEEP_DELAY: 0.001  # Sleep time to prevent busy waiting when polling for data
 PREDICTOR_DELAY: 0.01  # Changes the precision of frequency of predictions
-PREDICTOR_TIMEOUT_DELAY: 0.50  # Timeout for waiting for new predictions
+CONTROLLER_POLL_RATE: 0.01
+PREDICTOR_TIMEOUT_DELAY: 0.05  # Timeout for waiting for new predictions
 SMOOTH_WINDOW: 1  # Set to 1 to disable smoothing (always use latest value)
 SMOOTH_METHOD: 'mode'  # 'mode' recommended for categorical gestures; 'mean' for numeric smoothing
-HEARTBEAT_INTERVAL: 0.1  # Heartbeat interval (seconds) for re-sending the last gesture
 
 # ===== Logging configuration =====
 LOG_LEVEL: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL

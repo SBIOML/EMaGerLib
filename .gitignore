@@ -27,6 +27,7 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+.*env*
 .venv*
 .Python
 build/

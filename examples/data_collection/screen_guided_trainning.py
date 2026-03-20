@@ -9,9 +9,9 @@ import logging
 from libemg.data_handler import OnlineDataHandler
 from libemg.datasets import OneSubjectMyoDataset
 from libemg.gui import GUI
-from libemg.streamers import emager_streamer
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
+from emagerlib.utils.streamer_utils import get_emager_streamer
 
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
@@ -38,7 +38,7 @@ save_config_if_requested(args, cfg, script_name="screen_guided_training")
 
 def main():
     # Create data handler and streamer
-    p, smi = emager_streamer()
+    p, smi = get_emager_streamer(cfg.EMAGER_VERSION)
     logger.info(f"Streamer created: process: {p}, smi : {smi}")
     odh = OnlineDataHandler(shared_memory_items=smi)
     logger.info("Data handler created")

@@ -1,5 +1,5 @@
 libemg
-# git+https://github.com/Michiboi29/libemg-fork.git@multi_devices#egg=libemg
+# git+https://github.com/Michiboi29/libemg-fork.git@emager-v3#egg=libemg
 # -e "C:\GIT\libemg-fork"
 torch
 lightning

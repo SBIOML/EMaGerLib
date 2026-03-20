@@ -111,6 +111,7 @@ SAMPLING: 1008
 |-----------|------|-------------|---------|
 | `VIRTUAL` | bool | Use virtual/simulated device (not implemented) | `False` |
 | `PORT` | str/None | Serial port for hardware or `None` for auto-detect | `None` |
+| `EMAGER_VERSION` | str | EMaGer device version: `"v1.0"`, `"v1.1"`, or `"v3.0"` | `"v3.0"` |
 
 ### Real-time Control Settings
 
@@ -199,6 +200,7 @@ EPOCH = 10
 # ===== Hardware ===== #
 VIRTUAL = False
 PORT = None  # Auto-detect
+EMAGER_VERSION = "v3.0"  # EMaGer device version ("v1.0", "v1.1", or "v3.0")
 
 # ===== Real-time Control ===== #
 USE_GUI = False

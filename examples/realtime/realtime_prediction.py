@@ -12,7 +12,6 @@ import sys
 from libemg.data_handler import OnlineDataHandler
 from libemg.emg_predictor import EMGClassifier, OnlineEMGClassifier
 from libemg.feature_extractor import FeatureExtractor
-from libemg.streamers import emager_streamer
 from libemg.filtering import Filter
 from libemg.environments.controllers import ClassifierController
 
@@ -22,6 +21,7 @@ from emagerlib.visualization.realtime_gui import RealTimeGestureUi
 import emagerlib.utils.gestures_json as gjutils
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
+from emagerlib.utils.streamer_utils import get_emager_streamer
 
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
@@ -45,11 +45,12 @@ logger = logging.getLogger(__name__)
 # Save config if requested (uses logging internally)
 save_config_if_requested(args, cfg, script_name="realtime_prediction")
 
-def update_labels_process(stop_event:threading.Event, gui:RealTimeGestureUi, conn:Connection | None = None, delay:float=0.01, timeout_delay:float=0.5):
+def update_labels_process(stop_event:threading.Event, gui:RealTimeGestureUi, ctrl:ClassifierController, conn:Connection | None = None, delay:float=cfg.PREDICTOR_DELAY, timeout_delay:float=cfg.PREDICTOR_TIMEOUT_DELAY):
     '''
     Update the labels of the gui and send the data to the controller via conn if it is not None
     stop_event: threading.Event = threading.Event()
     gui: RealTimeGestureUi = RealTimeGestureUi()
+    ctrl: ClassifierController = shared classifier controller (avoid duplicate socket binding)
     conn: Connection | None = None, delay:float=0.01
     conn ouputs:
         output_data = {
@@ -59,59 +60,80 @@ def update_labels_process(stop_event:threading.Event, gui:RealTimeGestureUi, con
     '''
     gestures_dict = gjutils.get_gestures_dict(cfg.MEDIA_PATH)
     images = gjutils.get_images_list(cfg.MEDIA_PATH)
-    ctrl = ClassifierController('predictions', cfg.NUM_CLASSES)
     
-    # Track last prediction to avoid sending duplicates
+    # Track last prediction to avoid sending duplicate data on pipe
     last_prediction = None
     last_sent_time = 0
     
     # Run thread until stop event
     while not stop_event.is_set():
-        
-        # Get predictions using the controller
-        predictions = ctrl.get_data(['predictions'])
-        # action = ctrl._get_action()
-        # print(f"{predictions} (predictions)")
-        # print(f"action: {action}")
-        if predictions is None:
-            time.sleep(delay)  # Wait a bit if no data
-            continue
-        
-        index = int(predictions[0])
-        
-        # Only process and send if prediction has changed or enough time has passed
-        current_time = time.time()
-        if index == last_prediction and (current_time - last_sent_time) < timeout_delay:
+        try:
+            # Get predictions using the controller
+            predictions = ctrl.get_data(['predictions'])
+            # action = ctrl._get_action()
+            # print(f"{predictions} (predictions)")
+            # print(f"action: {action}")
+            if predictions is None:
+                time.sleep(delay)  # Wait a bit if no data
+                continue
+            
+            index = int(predictions[0])
+            
+            # Validate prediction index
+            if index < 0 or index >= cfg.NUM_CLASSES:
+                logger.warning(f"Invalid prediction index {index}, skipping")
+                time.sleep(delay)
+                continue
+            
+            # Throttle duplicate forwarding (pipe/log), but keep GUI responsive
+            current_time = time.time()
+            should_forward = not (
+                index == last_prediction and (current_time - last_sent_time) < timeout_delay
+            )
+            
+            ts = current_time
+            timestamp = time.strftime("%H:%M:%S", time.localtime(ts)) + f".{int((ts - int(ts)) * 1000):03d}"
+            output_data = {
+                "prediction": index,
+                "timestamp": timestamp
+            }
+            
+            label = gjutils.get_label_from_index(index, images, gestures_dict)
+            
+            if label is None:
+                logger.warning(f"Failed to get label for index {index}")
+                time.sleep(delay)
+                continue
+
+            gui.update_label(label)
+            
+            if should_forward:
+                logger.info(f"Prediction: {index} ({label})")
+
+            if conn is not None and should_forward:
+                logger.info(f"Output : pred({predictions[0]})  gest[{label}] {output_data}... sending data ...")
+                conn.send(output_data)
+                last_prediction = index
+                last_sent_time = current_time
+
+            if conn is None and should_forward:
+                last_prediction = index
+                last_sent_time = current_time
+
             time.sleep(delay)
-            continue
         
-        last_prediction = index
-        last_sent_time = current_time
-        
-        ts = current_time
-        timestamp = time.strftime("%H:%M:%S", time.localtime(ts)) + f".{int((ts - int(ts)) * 1000):03d}"
-        output_data = {
-            "prediction": index,
-            "timestamp": timestamp
-        }
-        
-        label = gjutils.get_label_from_index(index, images, gestures_dict)
-
-        gui.update_label(label)
-
-        if conn is not None:
-            logger.info(f"Output : pred({predictions[0]})  gest[{label}] {output_data}... sending data ...")
-            conn.send(output_data)
-
-        time.sleep(delay)
+        except Exception as e:
+            logger.error(f"Error in update_labels_process loop: {e}", exc_info=True)
+            time.sleep(delay)
         
 
-def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.01, timeout_delay:float=0.5):
+def predicator(use_gui:bool=True, ctrl_shared:ClassifierController | None = None, conn:Connection | None = None, delay:float=cfg.PREDICTOR_DELAY, timeout_delay:float=cfg.PREDICTOR_TIMEOUT_DELAY):
 
     # Create data handler and streamer
-    p, smi = emager_streamer()
-    logger.info(f"Streamer created: process: {p}, smi : {smi}")
-    odh = OnlineDataHandler(shared_memory_items=smi)
+    p, smi = get_emager_streamer(cfg.EMAGER_VERSION)
+    smi_emg = [item for item in smi if item[0] in ['emg', 'emg_count']]
+    logger.info(f"Streamer created: process: {p}, smi : {smi_emg}")
+    odh = OnlineDataHandler(shared_memory_items=smi_emg)
 
     filter = Filter(cfg.SAMPLING)
     notch_filter_dictionary={ "name": "notch", "cutoff": 60, "bandwidth": 3}
@@ -162,9 +184,17 @@ def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.0
     logger.info("Creating GUI...")
     gui = RealTimeGestureUi(files)
     
+    # Use shared classifier controller if provided; otherwise create one (for backward compatibility)
+    if ctrl_shared is not None:
+        ctrl = ctrl_shared
+        logger.debug("Using shared ClassifierController")
+    else:
+        ctrl = ClassifierController('predictions', cfg.NUM_CLASSES)
+        logger.debug("Created new ClassifierController (standalone mode)")
+    
     stop_event = threading.Event()
     updateLabelProcess = threading.Thread(target=update_labels_process, args=(
-        stop_event, gui, conn, delay, timeout_delay))
+        stop_event, gui, ctrl, conn, delay, timeout_delay))
 
     try:
         logger.info("Starting classification...")
@@ -191,7 +221,7 @@ def predicator(use_gui:bool=True, conn:Connection | None = None, delay:float=0.0
 
 
 def main():
-    predicator(use_gui=True, conn=None, delay=0.01, timeout_delay=0.5)
+    predicator(use_gui=True, ctrl_shared=None, conn=None, delay=cfg.PREDICTOR_DELAY, timeout_delay=cfg.PREDICTOR_TIMEOUT_DELAY)
 
 if __name__ == "__main__":
     main()

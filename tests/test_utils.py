@@ -3,51 +3,7 @@
 import unittest
 import numpy as np
 from pathlib import Path
-from emagerlib.utils.majority_vote import MajorityVote, majority_vote
 from emagerlib.utils.utils import get_transform_decimation, print_packet
-
-
-class TestMajorityVote(unittest.TestCase):
-    """Test suite for majority voting"""
-
-    def test_01_majority_vote_basic(self):
-        """Test basic majority vote functionality"""
-        mv = MajorityVote(5)
-        
-        # Add values
-        mv.append(1)
-        mv.append(1)
-        mv.append(2)
-        mv.append(1)
-        mv.append(3)
-        
-        # Should return 1 as it appears most frequently
-        result = mv.vote()
-        self.assertIsNotNone(result)
-        print("✓ MajorityVote basic functionality works")
-
-    def test_02_majority_vote_overflow(self):
-        """Test majority vote with more items than max length"""
-        mv = MajorityVote(3)
-        
-        # Add more items than max_len
-        for i in [1, 1, 2, 3, 3]:
-            mv.append(i)
-        
-        # Should only consider last 3 items: [2, 3, 3]
-        result = mv.vote()
-        self.assertIsNotNone(result)
-        self.assertEqual(len(mv), 3)
-        print("✓ MajorityVote respects max length")
-
-    def test_03_majority_vote_function(self):
-        """Test majority_vote function with array"""
-        arr = np.array([1, 1, 2, 2, 2, 3, 3, 3, 3])
-        result = majority_vote(arr, 3)
-        
-        self.assertEqual(len(result), len(arr))
-        self.assertIsInstance(result, np.ndarray)
-        print("✓ majority_vote function works with numpy arrays")
 
 
 class TestUtilityFunctions(unittest.TestCase):

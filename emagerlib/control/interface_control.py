@@ -1,6 +1,7 @@
 # from control.zeus_control import ZeusControl
 # from control.smart_hand_control import SmartHandControl
 from emagerlib.control.psyonic_control import PsyonicHandControl
+from emagerlib.control.psyonic_teensy_control import PsyonicTeensyControl
 from emagerlib.control.gesture_decoder import setup_gesture_decoder
 
 class InterfaceControl:
@@ -9,7 +10,7 @@ class InterfaceControl:
         Initialize the interface control with the specified hand type.
         
         Args:
-            hand_type (str): Type of hand to use ("zeus" or "smart" or "psyonic")
+            hand_type (str): Type of hand to use ("zeus", "smart", "psyonic", "psyonic_teensy")
             cfg: Configuration object with MEDIA_PATH. If provided, sets up gesture decoder.
             **kwargs: Additional arguments to pass to the hand controller
         """
@@ -31,6 +32,8 @@ class InterfaceControl:
         #     self.hand = SmartHandControl(**self.kwargs)
         if self.hand_type == "psyonic":
             self.hand = PsyonicHandControl(**self.kwargs)
+        elif self.hand_type == "psyonic_teensy":
+            self.hand = PsyonicTeensyControl(**self.kwargs)
         else:
             raise ValueError(f"Unsupported hand type: {self.hand_type}")
 

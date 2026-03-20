@@ -27,6 +27,8 @@ class CoreConfig:
     WINDOW_INCREMENT: int
     EPOCH: int
     SAMPLING: int
+    TRAIN_REPS: List[int]
+    TEST_REPS: List[int]
     FILTER: bool
     VIRTUAL: bool
     PORT: str

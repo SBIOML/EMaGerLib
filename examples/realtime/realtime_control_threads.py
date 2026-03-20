@@ -106,9 +106,7 @@ def run_controller_thread():
         
         # Smoothing buffer
         recent = deque(maxlen=cfg.SMOOTH_WINDOW)
-        last_gesture = None
-        last_send_time = 0.0
-        heartbeat_interval = cfg.HEARTBEAT_INTERVAL
+        last_sent_gesture = None
         
         # Performance tracking
         loop_times = []
@@ -127,68 +125,42 @@ def run_controller_thread():
             read_times.append(read_elapsed)
             
             if predictions is None:
-                # No prediction yet, check heartbeat
-                now = time.perf_counter()
-                if heartbeat_interval and last_gesture is not None:
-                    if (now - last_send_time) >= heartbeat_interval:
-                        try:
-                            comm_controller.send_gesture(last_gesture)
-                            last_send_time = now
-                            logger.debug(f"Heartbeat: re-sent gesture [{last_gesture}]")
-                        except Exception as e:
-                            logger.error(f"Error sending heartbeat gesture: {e}")
-                
-                # Short sleep to prevent busy waiting
-                time.sleep(max(cfg.POLL_SLEEP_DELAY, 0.0001))
+                # No prediction yet; sleep and retry
+                time.sleep(cfg.CONTROLLER_POLL_RATE)
                 continue
             
             # Process prediction
             try:
                 input_pred = int(predictions[0])
+                logger.debug(f"Raw prediction: {input_pred}")
                 
                 # Validate prediction
                 if input_pred not in range(cfg.NUM_CLASSES):
+                    logger.warning(f"Invalid prediction {input_pred}, using REST (0)")
                     input_pred = 0
                 
-                # Add to smoothing buffer
-                recent.append(input_pred)
-                
-                # Apply smoothing if enabled
-                if cfg.SMOOTH_WINDOW > 1 and len(recent) > 1:
-                    if cfg.SMOOTH_METHOD == 'mode':
-                        counts = Counter(recent)
-                        most_common = counts.most_common()
-                        top_count = most_common[0][1]
-                        candidates = [val for val, cnt in most_common if cnt == top_count]
-                        # If tie, pick most recent
-                        for v in reversed(recent):
-                            if v in candidates:
-                                smoothed_pred = v
-                                break
-                    elif cfg.SMOOTH_METHOD == 'mean':
-                        smoothed_pred = int(round(mean(recent)))
-                    else:
-                        smoothed_pred = recent[-1]
-                else:
-                    smoothed_pred = input_pred
-                
-                # Get gesture label
-                gesture = gjutils.get_label_from_index(smoothed_pred, images, gestures_dict)
-                
-                logger.debug(f"Prediction: {input_pred} -> Smoothed: {smoothed_pred} -> Gesture: [{gesture}]")
+                # No smoothing for now - just get gesture directly
+                gesture = gjutils.get_label_from_index(input_pred, images, gestures_dict)
+                logger.info(f"Prediction {input_pred} -> Gesture [{gesture}]")
                 
             except Exception as e:
-                logger.error(f"Error processing prediction: {e}")
+                logger.error(f"Error processing prediction: {e}", exc_info=True)
+                time.sleep(cfg.CONTROLLER_POLL_RATE)
                 continue
             
-            # Send gesture to hand
-            try:
-                comm_controller.send_gesture(gesture)
-                last_gesture = gesture
-                last_send_time = time.perf_counter()
-                logger.info(f"Sent gesture [{gesture}] to hand")
-            except Exception as e:
-                logger.error(f"Error sending gesture: {e}")
+            # Only send if gesture changed
+            if gesture != last_sent_gesture:
+                try:
+                    comm_controller.send_gesture(gesture)
+                    last_sent_gesture = gesture
+                    logger.info(f"✓ SENT gesture [{gesture}] to hand")
+                except Exception as e:
+                    logger.error(f"✗ Error sending gesture: {e}", exc_info=True)
+            else:
+                logger.debug(f"Same gesture, skipping send")
+            
+            # Control polling rate
+            time.sleep(cfg.CONTROLLER_POLL_RATE)
             
             # Performance monitoring
             loop_elapsed = time.perf_counter() - loop_start
@@ -219,8 +191,8 @@ def main():
     try:
         logger.info("Starting threaded real-time control...")
         logger.info(f"GUI enabled: {cfg.USE_GUI}")
+        logger.info(f"Controller poll rate: {cfg.CONTROLLER_POLL_RATE}s ({1/cfg.CONTROLLER_POLL_RATE:.0f}Hz)")
         logger.info(f"Smooth window: {cfg.SMOOTH_WINDOW}, method: {cfg.SMOOTH_METHOD}")
-        logger.info(f"Heartbeat interval: {cfg.HEARTBEAT_INTERVAL}s")
         
         # Start predictor thread (sets up LibEMG and optionally shows GUI)
         predictor_thread = threading.Thread(

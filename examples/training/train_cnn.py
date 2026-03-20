@@ -62,8 +62,8 @@ def main():
     #     plt.show()
 
     # Split data into training and testing
-    train_data = data.isolate_data("reps", [0,1,2])
-    test_data = data.isolate_data("reps", [3,4])
+    train_data = data.isolate_data("reps", cfg.TRAIN_REPS)
+    test_data = data.isolate_data("reps", cfg.TEST_REPS)
 
     # Extract windows 
     train_windows, train_meta = train_data.parse_windows(cfg.WINDOW_SIZE, cfg.WINDOW_INCREMENT)

@@ -15,6 +15,8 @@ import time
 from queue import Queue, Empty
 from pathlib import Path
 import logging
+import serial
+import serial.tools.list_ports
 
 from libemg.environments.controllers import ClassifierController
 from examples.realtime.realtime_prediction import predicator
@@ -191,6 +193,12 @@ def main():
         logger.info(f"Controller speed: {cfg.CONTROLLER_POLL_RATE}s between polls")
         logger.info(f"Teensy port: {args.port or 'auto-detect'}")
         logger.info("="*60)
+        
+        ports = serial.tools.list_ports.comports()
+        logger.info("Available serial ports:")
+        for i, port in enumerate(ports):
+            logger.info(f"  [{i}] {port.device}: {port.description}")
+        
         
         # Create shared ClassifierController (only once to avoid socket conflicts on Windows)
         logger.info("Connecting to LibEMG shared memory...")

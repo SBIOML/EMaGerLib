@@ -34,7 +34,7 @@ A comprehensive toolbox for working with the EMaGer v1 and v3 EMG acquisition de
 ## Key Features
 
 - **Real-time Gesture Recognition**: Advanced CNN-based models with quantization support for efficient inference
-- **Prosthetic Hand Control**: Native support for Psyonic and other prosthetic hands via serial communication
+- **Prosthetic Hand Control**: Native support for Psyonic hands via direct serial or Teensy-based UART control
 - **Data Collection & Training**: Screen-guided training sessions with configurable gesture sets
 - **Visualization Tools**: Real-time 64-channel EMG visualization and monitoring
 - **Flexible Configuration**: Python, YAML, and JSON-based configuration system
@@ -94,6 +94,22 @@ pip install -e .
 ```
 
 This installs the package with all dependencies and makes console commands available globally.
+
+**Optional: Install with different libemg versions**
+
+```bash
+# Install with latest libemg from main repository
+pip install -e ".[latest]"
+
+# Install with libemg fork (emager-v3 branch)
+pip install -e ".[fork]"
+
+# Install with local libemg (edit path in pyproject.toml first)
+pip install -e ".[local]"
+
+# Install with development dependencies
+pip install -e ".[dev]"
+```
 
 > **Note**: The package automatically installs the required `emager-v3` branch of the libemg fork, which provides support for both EMaGer v1 and v3 devices.
 

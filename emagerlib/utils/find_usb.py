@@ -22,3 +22,15 @@ def find_pico():
 
 def find_nrf_base_station():
     return find_port(12259, 256)
+
+def find_teensy():
+    # Teensy 4.1 VID:PID is 16c0:0483 in serial mode, but it can be in different modes so we check for multiple possibilities
+    try:
+        return find_port(0x16c0, 0x0483) # Serial mode
+    except ValueError:
+        logger.warning("Teensy not found in serial mode, trying USB mode...")
+        try:
+            return find_port(0x16c0, 0x0478) # USB mode
+        except ValueError:
+            logger.warning("Teensy not found in USB mode either.")
+            raise ValueError("Teensy device not found in any known mode.")

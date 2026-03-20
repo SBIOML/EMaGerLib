@@ -131,8 +131,9 @@ def predicator(use_gui:bool=True, ctrl_shared:ClassifierController | None = None
 
     # Create data handler and streamer
     p, smi = get_emager_streamer(cfg.EMAGER_VERSION)
-    logger.info(f"Streamer created: process: {p}, smi : {smi}")
-    odh = OnlineDataHandler(shared_memory_items=smi)
+    smi_emg = [item for item in smi if item[0] in ['emg', 'emg_count']]
+    logger.info(f"Streamer created: process: {p}, smi : {smi_emg}")
+    odh = OnlineDataHandler(shared_memory_items=smi_emg)
 
     filter = Filter(cfg.SAMPLING)
     notch_filter_dictionary={ "name": "notch", "cutoff": 60, "bandwidth": 3}

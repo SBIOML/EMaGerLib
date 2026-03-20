@@ -2,7 +2,7 @@ from pathlib import Path
 
 # ===== Paths ===== #
 BASE_PATH = Path("./Datasets/")
-SESSION = "D1"
+SESSION = "EM01"
 MEDIA_PATH = "./media-test/"
 MODEL_NAME = None # Note: MODEL_NAME will find the last model if set to None but you can hardcode it 
 # or put your own function in the config.py file
@@ -12,10 +12,10 @@ MODEL_NAME = None # Note: MODEL_NAME will find the last model if set to None but
 
 # ===== Gesture/classes configuration ===== #
 # hand_close, hand_open, index extension, ok, thumbs up
-CLASSES = [2, 3, 30, 14, 18]
-NUM_CLASSES = 5
+CLASSES = [2, 3, 30, 1, 14, 18, 19]
+NUM_CLASSES = 7
 NUM_REPS = 5
-REP_TIME = 5
+REP_TIME = 3
 REST_TIME = 1
 
 # ===== Data acquisition and model parameters ===== #
@@ -24,6 +24,8 @@ WINDOW_SIZE = 200
 WINDOW_INCREMENT = 10
 EPOCH = 10
 SAMPLING = 1008
+TRAIN_REPS = [0,1,2]
+TEST_REPS = [3,4]
 FILTER = False
 VIRTUAL = False
 PORT = None

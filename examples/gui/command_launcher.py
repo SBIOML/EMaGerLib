@@ -1,15 +1,20 @@
 """PyQt-based GUI command launcher for EMaGerLib (comparison implementation)."""
 
+import ast
 import os
 import shlex
 import subprocess
 import sys
+from dataclasses import fields
+from pathlib import Path
+from typing import Any
 
 try:
     from PyQt6.QtCore import QProcess
     from PyQt6.QtGui import QFont
     from PyQt6.QtWidgets import (
         QApplication,
+        QFileDialog,
         QComboBox,
         QGridLayout,
         QGroupBox,
@@ -21,10 +26,15 @@ try:
         QTextEdit,
         QVBoxLayout,
         QWidget,
+        QScrollArea,
     )
 except ImportError:  # pragma: no cover
     QProcess = None
     QApplication = None
+
+from emagerlib.config.core_config import CoreConfig
+from emagerlib.config.load_config import load_config
+from emagerlib.config.save_config import save_config
 
 
 def get_available_emager_commands():
@@ -155,6 +165,13 @@ class CommandLauncherPyQt(QMainWindow):
         self.resize(1020, 670)
 
         self.current_theme = "dark"
+        self.config_inputs = {}
+        self.config_field_names = [
+            f.name for f in fields(CoreConfig)
+            if f.name not in {"EXTRA", "CONFIG_FILE_NAME", "CONFIG_FILE_PATH"}
+        ]
+        self.last_saved_config_path = None
+
         self.process = QProcess(self)
         self.process.readyReadStandardOutput.connect(self._read_process_output)
         self.process.readyReadStandardError.connect(self._read_process_output)
@@ -191,6 +208,48 @@ class CommandLauncherPyQt(QMainWindow):
 
         root_layout.addWidget(emager_group)
 
+        config_group = QGroupBox("Config Editor")
+        config_root_layout = QVBoxLayout(config_group)
+
+        preload_layout = QHBoxLayout()
+        preload_layout.addWidget(QLabel("Preload config file:"))
+        self.config_path_input = QLineEdit()
+        self.config_path_input.setPlaceholderText("config_examples/base_config_example.py")
+        self.browse_config_button = QPushButton("Browse")
+        self.browse_config_button.clicked.connect(self._browse_config_file)
+        self.load_config_button = QPushButton("Load Config")
+        self.load_config_button.clicked.connect(self._load_selected_config_file)
+        preload_layout.addWidget(self.config_path_input)
+        preload_layout.addWidget(self.browse_config_button)
+        preload_layout.addWidget(self.load_config_button)
+        config_root_layout.addLayout(preload_layout)
+
+        save_layout = QHBoxLayout()
+        save_layout.addWidget(QLabel("Runtime save name:"))
+        self.config_name_input = QLineEdit()
+        self.config_name_input.setPlaceholderText("gui_runtime_config")
+        self.config_name_input.setText("gui_runtime_config")
+        save_layout.addWidget(QLabel("Runtime save format:"))
+        self.config_format_combo = QComboBox()
+        self.config_format_combo.addItems(["yaml", "json"])
+        self.config_format_combo.setCurrentText("yaml")
+        self.last_config_label = QLabel("Runtime config: not saved yet")
+        save_layout.addWidget(self.config_name_input)
+        save_layout.addWidget(self.config_format_combo)
+        save_layout.addStretch(1)
+        save_layout.addWidget(self.last_config_label)
+        config_root_layout.addLayout(save_layout)
+
+        self.config_scroll = QScrollArea()
+        self.config_scroll.setWidgetResizable(True)
+        self.config_scroll_content = QWidget()
+        self.config_grid = QGridLayout(self.config_scroll_content)
+        self.config_grid.setColumnStretch(1, 1)
+        self.config_scroll.setWidget(self.config_scroll_content)
+        config_root_layout.addWidget(self.config_scroll)
+
+        root_layout.addWidget(config_group)
+
         custom_group = QGroupBox("Run Custom Shell Command")
         custom_layout = QHBoxLayout(custom_group)
         self.custom_input = QLineEdit()
@@ -222,11 +281,143 @@ class CommandLauncherPyQt(QMainWindow):
         self.output = QTextEdit()
         self.output.setReadOnly(True)
         self.output.setFont(QFont("Consolas", 10))
+        self.output.setMinimumHeight(240)
         output_layout.addWidget(self.output)
-        root_layout.addWidget(self.output_group, stretch=1)
+        root_layout.addWidget(self.output_group, stretch=2)
 
         self.setCentralWidget(central)
+        self._build_config_editor_fields()
+        self._load_initial_config()
         self._apply_theme(self.current_theme)
+
+    def _build_config_editor_fields(self):
+        for row, field_name in enumerate(self.config_field_names):
+            label = QLabel(field_name)
+            input_box = QLineEdit()
+            input_box.setPlaceholderText("None")
+            self.config_grid.addWidget(label, row, 0)
+            self.config_grid.addWidget(input_box, row, 1)
+            self.config_inputs[field_name] = input_box
+
+    def _load_initial_config(self):
+        default_path = Path("config_examples") / "base_config_example.py"
+        self.config_path_input.setText(str(default_path))
+        if default_path.exists():
+            self._load_config_into_editor(default_path)
+
+    def _browse_config_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select config file",
+            str(Path.cwd()),
+            "Config Files (*.py *.yaml *.yml *.json)",
+        )
+        if file_path:
+            self.config_path_input.setText(file_path)
+
+    def _load_selected_config_file(self):
+        raw_path = self.config_path_input.text().strip()
+        if not raw_path:
+            self._append_output("Please provide a config file path to preload.\n")
+            return
+        self._load_config_into_editor(Path(raw_path))
+
+    def _load_config_into_editor(self, config_path: Path):
+        try:
+            cfg = load_config(config_path)
+        except Exception as exc:
+            self._append_output(f"Failed to load config '{config_path}': {exc}\n")
+            return
+
+        for field_name in self.config_field_names:
+            value = getattr(cfg, field_name, None)
+            self.config_inputs[field_name].setText(self._value_to_text(value))
+
+        self._append_output(f"Loaded config values from: {Path(config_path).resolve()}\n")
+
+    def _value_to_text(self, value: Any) -> str:
+        if value is None:
+            return "None"
+        if isinstance(value, str):
+            return value
+        if isinstance(value, Path):
+            return str(value)
+        return repr(value)
+
+    def _text_to_value(self, raw_text: str):
+        text = raw_text.strip()
+        if text == "":
+            return ""
+
+        lowered = text.lower()
+        if lowered in {"none", "null"}:
+            return None
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+
+        try:
+            return ast.literal_eval(text)
+        except Exception:
+            return text
+
+    def _collect_config_data(self):
+        config_data = {}
+        for field_name in self.config_field_names:
+            raw_value = self.config_inputs[field_name].text()
+            value = self._text_to_value(raw_value)
+            if field_name == "BASE_PATH" and value is None:
+                raise ValueError("BASE_PATH cannot be empty.")
+            config_data[field_name] = value
+        return config_data
+
+    def _save_runtime_config(self) -> Path:
+        config_data = self._collect_config_data()
+        saved_dir = Path.cwd() / "saved_configs"
+        saved_dir.mkdir(parents=True, exist_ok=True)
+
+        file_format = self.config_format_combo.currentText().strip().lower()
+        if file_format not in {"yaml", "json"}:
+            file_format = "yaml"
+
+        config_name = self.config_name_input.text().strip() or "gui_runtime_config"
+
+        cfg = CoreConfig(**config_data)
+        output_path = save_config(
+            cfg,
+            saved_dir,
+            name=config_name,
+            file_format=file_format,
+        )
+
+        self.last_saved_config_path = output_path
+        self.last_config_label.setText(f"Runtime config: {output_path.name}")
+        return output_path
+
+    def _remove_config_args(self, extra_args: str) -> str:
+        if not extra_args.strip():
+            return ""
+
+        tokens = shlex.split(extra_args, posix=(os.name != "nt"))
+        sanitized_tokens = []
+        skip_next = False
+
+        for token in tokens:
+            if skip_next:
+                skip_next = False
+                continue
+
+            if token in {"-c", "--config"}:
+                skip_next = True
+                continue
+
+            if token.startswith("--config="):
+                continue
+
+            sanitized_tokens.append(token)
+
+        return " ".join(sanitized_tokens)
 
     def _apply_theme(self, theme_name):
         self.current_theme = theme_name
@@ -253,7 +444,16 @@ class CommandLauncherPyQt(QMainWindow):
             self._append_output("Please select a command.\n")
             return
 
-        command = build_emager_command(command_name, self.args_input.text())
+        try:
+            saved_config_path = self._save_runtime_config()
+        except Exception as exc:
+            self._append_output(f"Failed to save runtime config: {exc}\n")
+            return
+
+        sanitized_args = self._remove_config_args(self.args_input.text())
+        command = build_emager_command(command_name, sanitized_args)
+        command.extend(["--config", str(saved_config_path)])
+        self._append_output(f"Using runtime config: {saved_config_path}\n")
         self._start_process(command, shell=False)
 
     def _run_custom_command(self):

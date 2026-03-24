@@ -17,6 +17,9 @@ from emagerlib.utils.arg_parser import create_parser
 # Map command names to their module paths and main function names
 # Using lazy imports to avoid loading all modules at startup
 COMMANDS: Dict[str, Tuple[str, str]] = {
+  # GUI
+  "gui": ("examples.gui.command_launcher", "main"),
+
     # Data collection
     "screen-training": ("examples.data_collection.screen_guided_trainning", "main"),
     
@@ -25,19 +28,23 @@ COMMANDS: Dict[str, Tuple[str, str]] = {
     "test-wave": ("examples.hand_control.test_hand_wave", "main"),
     "test-psyonic": ("examples.hand_control.test_psyonic_hand", "main"),
     "test-teensy": ("examples.hand_control.test_teensy_hand", "main"),
+    "interact-teensy": ("examples.hand_control.interact_teensy_hand", "main"),
     
     # Realtime
-    "realtime-control": ("examples.realtime.realtime_control", "main"),
+    # "realtime-control": ("examples.realtime.realtime_control", "main"),
     "realtime-control-teensy": ("examples.realtime.realtime_control_teensy", "main"),
-    "realtime-control-threads": ("examples.realtime.realtime_control_threads", "main"),
+    # "realtime-control-threads": ("examples.realtime.realtime_control_threads", "main"),
     "realtime-predict": ("examples.realtime.realtime_prediction", "main"),
     
     # Training
     "train-cnn": ("examples.training.train_cnn", "main"),
+    "train-cnn-big": ("examples.training.train_cnn_big", "main"),
+    "fine-tune-cnn": ("examples.training.fine_tune_cnn", "main"),
     
     # Visualization
     "visualize-libemg": ("examples.visualisation.libemg_visualize", "main"),
-    "live-64ch": ("examples.visualisation.live_64_channel", "main"),
+    "live-64ch-v1": ("examples.visualisation.live_64_channel_v1", "main"),
+    "live-64ch-v3": ("examples.visualisation.live_64_channel_v3", "main"),
     
     # Tests
     "run-tests": ("tests.run_all_tests", "main"),
@@ -70,10 +77,17 @@ Available commands:
   
   Training:
     train-cnn          Train CNN model on EMG data
+    train-cnn-big      Train larger CNN model on EMG data
+    fine-tune-cnn      Fine-tune pre-trained CNN model
+
+
+  GUI:
+    gui                Open desktop command launcher
   
   Visualization:
     visualize-libemg   Visualize with libemg tools
-    live-64ch          Live 64-channel EMG visualization
+    live-64ch-v1       Live 64-channel EMG visualization (Version 1)
+    live-64ch-v3       Live 64-channel EMG visualization (Version 3)
   
   Testing:
     run-tests          Run complete test suite

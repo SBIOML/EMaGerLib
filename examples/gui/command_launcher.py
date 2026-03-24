@@ -1,6 +1,7 @@
 """PyQt-based GUI command launcher for EMaGerLib (comparison implementation)."""
 
 import os
+import shlex
 import subprocess
 import sys
 
@@ -25,7 +26,20 @@ except ImportError:  # pragma: no cover
     QProcess = None
     QApplication = None
 
-from examples.gui.command_launcher import build_emager_command, get_available_emager_commands
+
+def get_available_emager_commands():
+    """Return available emager commands excluding the GUI launcher itself."""
+    from examples.main import COMMANDS
+
+    return sorted(command for command in COMMANDS if command != "gui")
+
+
+def build_emager_command(command_name, extra_args=""):
+    """Build a command list to execute an emager subcommand via Python module entry."""
+    command = [sys.executable, "-m", "examples.main", command_name]
+    if extra_args and extra_args.strip():
+        command.extend(shlex.split(extra_args, posix=(os.name != "nt")))
+    return command
 
 
 LIGHT_STYLESHEET = """
@@ -192,21 +206,24 @@ class CommandLauncherPyQt(QMainWindow):
         self.stop_button.clicked.connect(self._stop_process)
         self.clear_button = QPushButton("Clear Output")
         self.clear_button.clicked.connect(self._clear_output)
+        self.toggle_output_button = QPushButton("Hide Output")
+        self.toggle_output_button.clicked.connect(self._toggle_output_visibility)
         self.status_label = QLabel("Idle")
 
         controls_layout.addWidget(self.stop_button)
         controls_layout.addWidget(self.clear_button)
+        controls_layout.addWidget(self.toggle_output_button)
         controls_layout.addStretch(1)
         controls_layout.addWidget(self.status_label)
         root_layout.addLayout(controls_layout)
 
-        output_group = QGroupBox("Output")
-        output_layout = QVBoxLayout(output_group)
+        self.output_group = QGroupBox("Output")
+        output_layout = QVBoxLayout(self.output_group)
         self.output = QTextEdit()
         self.output.setReadOnly(True)
         self.output.setFont(QFont("Consolas", 10))
         output_layout.addWidget(self.output)
-        root_layout.addWidget(output_group, stretch=1)
+        root_layout.addWidget(self.output_group, stretch=1)
 
         self.setCentralWidget(central)
         self._apply_theme(self.current_theme)
@@ -290,6 +307,14 @@ class CommandLauncherPyQt(QMainWindow):
 
     def _clear_output(self):
         self.output.clear()
+
+    def _toggle_output_visibility(self):
+        is_visible = self.output_group.isVisible()
+        self.output_group.setVisible(not is_visible)
+        if is_visible:
+            self.toggle_output_button.setText("Show Output")
+        else:
+            self.toggle_output_button.setText("Hide Output")
 
 
 def main():

@@ -1,435 +1,306 @@
-"""GUI command launcher for EMaGerLib."""
-
-from __future__ import annotations
+"""PyQt-based GUI command launcher for EMaGerLib (comparison implementation)."""
 
 import os
-import queue
-import shlex
 import subprocess
 import sys
-import threading
-from importlib import import_module
-from typing import Any, List, Optional, Union
 
 try:
-    import tkinter as tk
-    from tkinter import ttk
+    from PyQt6.QtCore import QProcess
+    from PyQt6.QtGui import QFont
+    from PyQt6.QtWidgets import (
+        QApplication,
+        QComboBox,
+        QGridLayout,
+        QGroupBox,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QMainWindow,
+        QPushButton,
+        QTextEdit,
+        QVBoxLayout,
+        QWidget,
+    )
 except ImportError:  # pragma: no cover
-    tk = None
-    ttk = None
+    QProcess = None
+    QApplication = None
+
+from examples.gui.command_launcher import build_emager_command, get_available_emager_commands
 
 
-DARK_BG = "#1E1E1E"
-DARK_PANEL = "#252526"
-DARK_BORDER = "#3C3C3C"
-DARK_INPUT = "#2D2D30"
-DARK_BUTTON = "#333337"
-DARK_BUTTON_ACTIVE = "#3F3F46"
-DARK_TEXT = "#E6E6E6"
-ACCENT_TEXT = "#9CDCFE"
+LIGHT_STYLESHEET = """
+QWidget {
+    background-color: #f4f5f7;
+    color: #202124;
+    font-size: 12px;
+}
+QGroupBox {
+    border: 1px solid #d0d3d8;
+    border-radius: 8px;
+    margin-top: 10px;
+    padding-top: 8px;
+    font-weight: 600;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+    color: #005a9e;
+}
+QLineEdit, QComboBox, QTextEdit {
+    background-color: #ffffff;
+    color: #202124;
+    border: 1px solid #c7ccd3;
+    border-radius: 6px;
+    padding: 6px;
+}
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    color: #202124;
+    selection-background-color: #dbeeff;
+}
+QPushButton {
+    background-color: #e9edf2;
+    color: #202124;
+    border: 1px solid #c7ccd3;
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+QPushButton:hover {
+    background-color: #dde3ea;
+}
+QPushButton#themeButton {
+    min-width: 30px;
+    max-width: 30px;
+    padding: 4px;
+    border-radius: 15px;
+    font-size: 14px;
+    color: #005a9e;
+}
+"""
 
-LIGHT_BG = "#F3F3F3"
-LIGHT_PANEL = "#FFFFFF"
-LIGHT_BORDER = "#C8C8C8"
-LIGHT_INPUT = "#FFFFFF"
-LIGHT_BUTTON = "#E6E6E6"
-LIGHT_BUTTON_ACTIVE = "#DADADA"
-LIGHT_TEXT = "#1F1F1F"
-LIGHT_ACCENT_TEXT = "#005A9E"
-LIGHT_SELECTION = "#CCE8FF"
-DARK_SELECTION = "#264F78"
+
+DARK_STYLESHEET = """
+QWidget {
+    background-color: #1f2125;
+    color: #e8eaed;
+    font-size: 12px;
+}
+QGroupBox {
+    border: 1px solid #3a3f47;
+    border-radius: 8px;
+    margin-top: 10px;
+    padding-top: 8px;
+    font-weight: 600;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+    color: #8ecbff;
+}
+QLineEdit, QComboBox, QTextEdit {
+    background-color: #2a2d33;
+    color: #e8eaed;
+    border: 1px solid #3f4550;
+    border-radius: 6px;
+    padding: 6px;
+}
+QComboBox QAbstractItemView {
+    background-color: #2a2d33;
+    color: #e8eaed;
+    selection-background-color: #3f546b;
+}
+QPushButton {
+    background-color: #343942;
+    color: #e8eaed;
+    border: 1px solid #4a5160;
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+QPushButton:hover {
+    background-color: #3d4450;
+}
+QPushButton#themeButton {
+    min-width: 30px;
+    max-width: 30px;
+    padding: 4px;
+    border-radius: 15px;
+    font-size: 14px;
+    color: #8ecbff;
+}
+"""
 
 
-def split_arguments(argument_string: str) -> List[str]:
-    """Split user-provided argument text into an argv list."""
-    if not argument_string.strip():
-        return []
+class CommandLauncherPyQt(QMainWindow):
+    """Alternative launcher using PyQt for UI comparison."""
 
-    use_posix = os.name != "nt"
-    return shlex.split(argument_string, posix=use_posix)
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("EMaGerLib Command Launcher (PyQt)")
+        self.resize(1020, 670)
 
+        self.current_theme = "dark"
+        self.process = QProcess(self)
+        self.process.readyReadStandardOutput.connect(self._read_process_output)
+        self.process.readyReadStandardError.connect(self._read_process_output)
+        self.process.finished.connect(self._on_process_finished)
 
-def get_available_emager_commands() -> List[str]:
-    """Return available unified CLI commands, excluding the GUI command itself."""
-    main_module = import_module("examples.main")
-    command_map = getattr(main_module, "COMMANDS", {})
-    return sorted(command for command in command_map.keys() if command != "gui")
+        central = QWidget(self)
+        root_layout = QVBoxLayout(central)
+        root_layout.setSpacing(10)
 
+        top_bar = QHBoxLayout()
+        top_bar.addStretch(1)
+        self.theme_button = QPushButton("☀")
+        self.theme_button.setObjectName("themeButton")
+        self.theme_button.clicked.connect(self._toggle_theme)
+        top_bar.addWidget(self.theme_button)
+        root_layout.addLayout(top_bar)
 
-def build_emager_command(command_name: str, argument_string: str = "") -> List[str]:
-    """Build a Python command line that runs the selected unified emager command."""
-    return [sys.executable, "-m", "examples.main", command_name, *split_arguments(argument_string)]
+        emager_group = QGroupBox("Run EMaGer Command")
+        emager_layout = QGridLayout(emager_group)
 
+        emager_layout.addWidget(QLabel("Command:"), 0, 0)
+        self.command_combo = QComboBox()
+        self.command_combo.addItems(get_available_emager_commands())
+        emager_layout.addWidget(self.command_combo, 0, 1)
 
-class CommandLauncherGUI:
-    """Desktop launcher for EMaGerLib commands."""
+        self.run_selected_button = QPushButton("Run Selected")
+        self.run_selected_button.clicked.connect(self._run_selected_command)
+        emager_layout.addWidget(self.run_selected_button, 0, 2, 2, 1)
 
-    def __init__(self) -> None:
-        if tk is None or ttk is None:  # pragma: no cover
-            raise RuntimeError("Tkinter is not available in this Python environment.")
+        emager_layout.addWidget(QLabel("Extra args:"), 1, 0)
+        self.args_input = QLineEdit()
+        self.args_input.setPlaceholderText("--config config_examples/base_config_example.py")
+        emager_layout.addWidget(self.args_input, 1, 1)
 
-        self.root = tk.Tk()
-        self.root.title("EMaGerLib Command Launcher")
-        self.root.geometry("980x640")
+        root_layout.addWidget(emager_group)
 
-        self.current_theme = tk.StringVar(value="dark")
-        self.theme_button: Optional[Any] = None
-        self.command_combobox: Optional[Any] = None
+        custom_group = QGroupBox("Run Custom Shell Command")
+        custom_layout = QHBoxLayout(custom_group)
+        self.custom_input = QLineEdit()
+        self.custom_input.setPlaceholderText("Example: python -m tests.run_all_tests")
+        self.run_custom_button = QPushButton("Run Custom")
+        self.run_custom_button.clicked.connect(self._run_custom_command)
+        custom_layout.addWidget(self.custom_input)
+        custom_layout.addWidget(self.run_custom_button)
+        root_layout.addWidget(custom_group)
 
-        self.process: Optional[subprocess.Popen] = None
-        self.output_queue: queue.Queue[str] = queue.Queue()
+        controls_layout = QHBoxLayout()
+        self.stop_button = QPushButton("Stop Running")
+        self.stop_button.clicked.connect(self._stop_process)
+        self.clear_button = QPushButton("Clear Output")
+        self.clear_button.clicked.connect(self._clear_output)
+        self.status_label = QLabel("Idle")
 
-        self.command_var = tk.StringVar(value="train-cnn")
-        self.args_var = tk.StringVar()
-        self.custom_command_var = tk.StringVar()
+        controls_layout.addWidget(self.stop_button)
+        controls_layout.addWidget(self.clear_button)
+        controls_layout.addStretch(1)
+        controls_layout.addWidget(self.status_label)
+        root_layout.addLayout(controls_layout)
 
-        self._apply_theme("dark")
-        self._build_layout()
-        self._apply_theme(self.current_theme.get())
-        self._populate_presets()
-        self._poll_output_queue()
+        output_group = QGroupBox("Output")
+        output_layout = QVBoxLayout(output_group)
+        self.output = QTextEdit()
+        self.output.setReadOnly(True)
+        self.output.setFont(QFont("Consolas", 10))
+        output_layout.addWidget(self.output)
+        root_layout.addWidget(output_group, stretch=1)
 
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.setCentralWidget(central)
+        self._apply_theme(self.current_theme)
 
-    def _apply_theme(self, theme_name: str) -> None:
+    def _apply_theme(self, theme_name):
+        self.current_theme = theme_name
         if theme_name == "light":
-            colors = {
-                "bg": LIGHT_BG,
-                "panel": LIGHT_PANEL,
-                "border": LIGHT_BORDER,
-                "input": LIGHT_INPUT,
-                "button": LIGHT_BUTTON,
-                "button_active": LIGHT_BUTTON_ACTIVE,
-                "text": LIGHT_TEXT,
-                "accent": LIGHT_ACCENT_TEXT,
-                "selection": LIGHT_SELECTION,
-                "disabled": "#7A7A7A",
-            }
+            self.setStyleSheet(LIGHT_STYLESHEET)
         else:
-            colors = {
-                "bg": DARK_BG,
-                "panel": DARK_PANEL,
-                "border": DARK_BORDER,
-                "input": DARK_INPUT,
-                "button": DARK_BUTTON,
-                "button_active": DARK_BUTTON_ACTIVE,
-                "text": DARK_TEXT,
-                "accent": ACCENT_TEXT,
-                "selection": DARK_SELECTION,
-                "disabled": "#7A7A7A",
-            }
+            self.setStyleSheet(DARK_STYLESHEET)
 
-        self.current_theme.set(theme_name)
-        self.root.configure(bg=colors["bg"])
-
-        style = ttk.Style(self.root)
-        style.theme_use("clam")
-
-        style.configure("TFrame", background=colors["bg"])
-        style.configure(
-            "TLabelframe",
-            background=colors["bg"],
-            foreground=colors["text"],
-            bordercolor=colors["border"],
-            lightcolor=colors["border"],
-            darkcolor=colors["border"],
-        )
-        style.configure("TLabelframe.Label", background=colors["bg"], foreground=colors["accent"])
-        style.configure("TLabel", background=colors["bg"], foreground=colors["text"])
-        style.configure(
-            "TButton",
-            background=colors["button"],
-            foreground=colors["text"],
-            bordercolor=colors["border"],
-            focusthickness=1,
-            focuscolor=colors["border"],
-            padding=6,
-        )
-        style.map(
-            "TButton",
-            background=[("active", colors["button_active"]), ("pressed", colors["button_active"])],
-            foreground=[("disabled", colors["disabled"])],
-        )
-        style.configure(
-            "Theme.TButton",
-            background=colors["button"],
-            foreground=colors["accent"],
-            bordercolor=colors["border"],
-            focusthickness=1,
-            focuscolor=colors["border"],
-            padding=(4, 2),
-            width=3,
-        )
-        style.map(
-            "Theme.TButton",
-            background=[("active", colors["button_active"]), ("pressed", colors["button_active"])],
-            foreground=[("disabled", colors["disabled"])],
-        )
-        style.configure(
-            "TEntry",
-            fieldbackground=colors["input"],
-            foreground=colors["text"],
-            insertcolor=colors["text"],
-            bordercolor=colors["border"],
-        )
-        style.configure(
-            "TCombobox",
-            fieldbackground=colors["input"],
-            background=colors["input"],
-            foreground=colors["text"],
-            arrowcolor=colors["text"],
-            bordercolor=colors["border"],
-        )
-        style.map(
-            "TCombobox",
-            fieldbackground=[("readonly", colors["input"])],
-            foreground=[("readonly", colors["text"])],
-            selectbackground=[("readonly", colors["input"])],
-            selectforeground=[("readonly", colors["text"])],
-        )
-
-        self.root.option_add("*TCombobox*Listbox.background", colors["input"])
-        self.root.option_add("*TCombobox*Listbox.foreground", colors["text"])
-        self.root.option_add("*TCombobox*Listbox.selectBackground", colors["button_active"])
-        self.root.option_add("*TCombobox*Listbox.selectForeground", colors["text"])
-        self.root.option_add("*Listbox.background", colors["input"])
-        self.root.option_add("*Listbox.foreground", colors["text"])
-        self.root.option_add("*Listbox.selectBackground", colors["button_active"])
-        self.root.option_add("*Listbox.selectForeground", colors["text"])
-
-        self._configure_combobox_dropdown(colors)
-
-        if hasattr(self, "output_text"):
-            self.output_text.configure(
-                bg=colors["panel"],
-                fg=colors["text"],
-                insertbackground=colors["text"],
-                selectbackground=colors["selection"],
-            )
-
-        if self.theme_button is not None:
-            self.theme_button.configure(
-                text="☾" if theme_name == "light" else "☀"
-            )
-
-    def _configure_combobox_dropdown(self, colors: dict) -> None:
-        if self.command_combobox is None:
-            return
-
-        try:
-            popdown = self.root.tk.call("ttk::combobox::PopdownWindow", str(self.command_combobox))
-            listbox_widget = f"{popdown}.f.l"
-            self.root.eval(
-                f'{listbox_widget} configure -background "{colors["input"]}" '
-                f'-foreground "{colors["text"]}" '
-                f'-selectbackground "{colors["button_active"]}" '
-                f'-selectforeground "{colors["text"]}"'
-            )
-        except Exception:
-            pass
-
-    def _toggle_theme(self) -> None:
-        next_theme = "light" if self.current_theme.get() == "dark" else "dark"
+    def _toggle_theme(self):
+        next_theme = "light" if self.current_theme == "dark" else "dark"
         self._apply_theme(next_theme)
 
-    def _build_layout(self) -> None:
-        main_frame = ttk.Frame(self.root, padding=12)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+    def _append_output(self, text):
+        self.output.moveCursor(self.output.textCursor().MoveOperation.End)
+        self.output.insertPlainText(text)
+        self.output.moveCursor(self.output.textCursor().MoveOperation.End)
 
-        top_bar = ttk.Frame(main_frame)
-        top_bar.pack(fill=tk.X, padx=4, pady=(0, 6))
+    def _is_running(self):
+        return self.process.state() != QProcess.ProcessState.NotRunning
 
-        self.theme_button = ttk.Button(top_bar, text="☀", style="Theme.TButton", command=self._toggle_theme)
-        self.theme_button.pack(side=tk.RIGHT)
-
-        preset_group = ttk.LabelFrame(main_frame, text="Run EMaGer Command", padding=10)
-        preset_group.pack(fill=tk.X, padx=4, pady=4)
-
-        ttk.Label(preset_group, text="Command:").grid(row=0, column=0, sticky="w")
-        self.command_combobox = ttk.Combobox(
-            preset_group,
-            textvariable=self.command_var,
-            state="readonly",
-            width=38,
-        )
-        self.command_combobox.grid(row=0, column=1, sticky="we", padx=8)
-
-        ttk.Label(preset_group, text="Extra args:").grid(row=1, column=0, sticky="w", pady=(8, 0))
-        ttk.Entry(preset_group, textvariable=self.args_var, width=60).grid(
-            row=1,
-            column=1,
-            sticky="we",
-            padx=8,
-            pady=(8, 0),
-        )
-
-        ttk.Button(preset_group, text="Run Selected", command=self._run_selected_command).grid(
-            row=0,
-            column=2,
-            rowspan=2,
-            padx=(10, 0),
-            sticky="ns",
-        )
-
-        preset_group.columnconfigure(1, weight=1)
-
-        custom_group = ttk.LabelFrame(main_frame, text="Run Custom Shell Command", padding=10)
-        custom_group.pack(fill=tk.X, padx=4, pady=8)
-
-        ttk.Entry(custom_group, textvariable=self.custom_command_var).grid(
-            row=0,
-            column=0,
-            sticky="we",
-        )
-        ttk.Button(custom_group, text="Run Custom", command=self._run_custom_command).grid(
-            row=0,
-            column=1,
-            padx=(10, 0),
-        )
-        custom_group.columnconfigure(0, weight=1)
-
-        controls_group = ttk.Frame(main_frame)
-        controls_group.pack(fill=tk.X, padx=4, pady=4)
-
-        ttk.Button(controls_group, text="Stop Running", command=self._stop_running_process).pack(side=tk.LEFT)
-        ttk.Button(controls_group, text="Clear Output", command=self._clear_output).pack(side=tk.LEFT, padx=8)
-
-        self.status_label = ttk.Label(controls_group, text="Idle")
-        self.status_label.pack(side=tk.RIGHT)
-
-        output_group = ttk.LabelFrame(main_frame, text="Output", padding=8)
-        output_group.pack(fill=tk.BOTH, expand=True, padx=4, pady=(8, 4))
-
-        self.output_text = tk.Text(
-            output_group,
-            wrap=tk.WORD,
-            height=20,
-            bg=DARK_PANEL,
-            fg=DARK_TEXT,
-            insertbackground=DARK_TEXT,
-            selectbackground=DARK_SELECTION,
-            relief=tk.FLAT,
-            borderwidth=0,
-        )
-        self.output_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        scroll = ttk.Scrollbar(output_group, orient=tk.VERTICAL, command=self.output_text.yview)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.output_text.configure(yscrollcommand=scroll.set)
-
-    def _populate_presets(self) -> None:
-        commands = get_available_emager_commands()
-        self.command_combobox["values"] = commands
-        if commands:
-            self.command_var.set(commands[0])
-
-    def _append_output(self, text: str) -> None:
-        self.output_text.insert(tk.END, text)
-        self.output_text.see(tk.END)
-
-    def _clear_output(self) -> None:
-        self.output_text.delete("1.0", tk.END)
-
-    def _set_status(self, status_text: str) -> None:
-        self.status_label.config(text=status_text)
-
-    def _run_selected_command(self) -> None:
-        selected_command = self.command_var.get().strip()
-        if not selected_command:
+    def _run_selected_command(self):
+        command_name = self.command_combo.currentText().strip()
+        if not command_name:
             self._append_output("Please select a command.\n")
             return
 
-        command_line = build_emager_command(selected_command, self.args_var.get())
-        self._start_process(command_line, shell=False)
+        command = build_emager_command(command_name, self.args_input.text())
+        self._start_process(command, shell=False)
 
-    def _run_custom_command(self) -> None:
-        custom_command = self.custom_command_var.get().strip()
+    def _run_custom_command(self):
+        custom_command = self.custom_input.text().strip()
         if not custom_command:
             self._append_output("Please provide a custom command.\n")
             return
-
         self._start_process(custom_command, shell=True)
 
-    def _start_process(self, command_line: Union[str, List[str]], shell: bool) -> None:
-        if self.process is not None and self.process.poll() is None:
+    def _start_process(self, command_line, shell=False):
+        if self._is_running():
             self._append_output("A process is already running. Stop it before starting another one.\n")
             return
 
-        self._append_output(f"\n$ {command_line}\n")
-        self._set_status("Running")
+        self._append_output("\n$ {}\n".format(command_line))
+        self.status_label.setText("Running")
 
-        try:
-            self.process = subprocess.Popen(
-                command_line,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                shell=shell,
-            )
-        except Exception as exc:
-            self.process = None
-            self._set_status("Error")
-            self._append_output(f"Failed to start command: {exc}\n")
-            return
+        if shell:
+            if os.name == "nt":
+                self.process.start("cmd", ["/c", command_line])
+            else:
+                self.process.start("/bin/sh", ["-c", command_line])
+        else:
+            program = command_line[0]
+            arguments = command_line[1:]
+            self.process.start(program, arguments)
 
-        worker = threading.Thread(target=self._stream_output, daemon=True)
-        worker.start()
+        if self.process.state() == QProcess.ProcessState.NotRunning:
+            self.status_label.setText("Error")
+            self._append_output("Failed to start command.\n")
 
-    def _stream_output(self) -> None:
-        current_process = self.process
-        if current_process is None:
-            return
+    def _read_process_output(self):
+        stdout_data = bytes(self.process.readAllStandardOutput()).decode(errors="replace")
+        stderr_data = bytes(self.process.readAllStandardError()).decode(errors="replace")
+        if stdout_data:
+            self._append_output(stdout_data)
+        if stderr_data:
+            self._append_output(stderr_data)
 
-        if current_process.stdout is not None:
-            for line in current_process.stdout:
-                self.output_queue.put(line)
+    def _on_process_finished(self, exit_code, _exit_status):
+        self._append_output("\nProcess finished with exit code {}.\n".format(exit_code))
+        self.status_label.setText("Idle")
 
-        return_code = current_process.wait()
-        self.output_queue.put(f"\nProcess finished with exit code {return_code}.\n")
-        self.process = None
-
-    def _poll_output_queue(self) -> None:
-        drained = False
-        while True:
-            try:
-                line = self.output_queue.get_nowait()
-            except queue.Empty:
-                break
-
-            drained = True
-            self._append_output(line)
-
-        if drained and (self.process is None or self.process.poll() is not None):
-            self._set_status("Idle")
-
-        self.root.after(100, self._poll_output_queue)
-
-    def _stop_running_process(self) -> None:
-        if self.process is None or self.process.poll() is not None:
+    def _stop_process(self):
+        if not self._is_running():
             self._append_output("No running process to stop.\n")
             return
-
-        self.process.terminate()
+        self.process.kill()
         self._append_output("Stop signal sent.\n")
-        self._set_status("Stopping")
+        self.status_label.setText("Stopping")
 
-    def _on_close(self) -> None:
-        if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
-        self.root.destroy()
-
-    def run(self) -> None:
-        self.root.mainloop()
+    def _clear_output(self):
+        self.output.clear()
 
 
-def main() -> None:
-    """Entry point for the GUI launcher."""
-    if tk is None:
-        raise RuntimeError("Tkinter is required for the GUI launcher but is not installed.")
+def main():
+    """Entry point for the PyQt launcher."""
+    if QApplication is None:
+        raise RuntimeError("PyQt6 is required for this launcher. Install pyqt6 to run it.")
 
-    app = CommandLauncherGUI()
-    app.run()
+    app = QApplication.instance() or QApplication(sys.argv)
+    window = CommandLauncherPyQt()
+    window.show()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

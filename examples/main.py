@@ -17,8 +17,8 @@ from emagerlib.utils.arg_parser import create_parser
 # Map command names to their module paths and main function names
 # Using lazy imports to avoid loading all modules at startup
 COMMANDS: Dict[str, Tuple[str, str]] = {
-  # GUI
-  "gui": ("examples.gui.command_launcher", "main"),
+    # GUI
+    "gui": ("examples.gui.command_launcher", "main"),
 
     # Data collection
     "screen-training": ("examples.data_collection.screen_guided_trainning", "main"),

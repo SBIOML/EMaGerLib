@@ -56,7 +56,7 @@ LIGHT_STYLESHEET = """
 QWidget {
     background-color: #f4f5f7;
     color: #202124;
-    font-size: 12px;
+    font-size: 10pt;
 }
 QGroupBox {
     border: 1px solid #d0d3d8;
@@ -108,7 +108,7 @@ DARK_STYLESHEET = """
 QWidget {
     background-color: #1f2125;
     color: #e8eaed;
-    font-size: 12px;
+    font-size: 10pt;
 }
 QGroupBox {
     border: 1px solid #3a3f47;
@@ -425,6 +425,19 @@ class CommandLauncherPyQt(QMainWindow):
             self.setStyleSheet(LIGHT_STYLESHEET)
         else:
             self.setStyleSheet(DARK_STYLESHEET)
+        self._normalize_widget_fonts()
+
+    def _normalize_widget_fonts(self):
+        widgets = [self] + self.findChildren(QWidget)
+        for widget in widgets:
+            font = widget.font()
+            if font.pointSize() > 0 or font.pointSizeF() > 0:
+                continue
+
+            pixel_size = font.pixelSize()
+            fallback_pt = max(1, int(round(pixel_size * 0.75))) if pixel_size > 0 else 10
+            font.setPointSize(fallback_pt)
+            widget.setFont(font)
 
     def _toggle_theme(self):
         next_theme = "light" if self.current_theme == "dark" else "dark"

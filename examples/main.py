@@ -24,9 +24,9 @@ COMMANDS: Dict[str, Tuple[str, str]] = {
     "screen-training": ("examples.data_collection.screen_guided_trainning", "main"),
     
     # Hand control
-    "test-hand": ("examples.hand_control.test_hand_control", "main"),
-    "test-wave": ("examples.hand_control.test_hand_wave", "main"),
-    "test-psyonic": ("examples.hand_control.test_psyonic_hand", "main"),
+    # "test-hand": ("examples.hand_control.test_hand_control", "main"),
+    # "test-wave": ("examples.hand_control.test_hand_wave", "main"),
+    # "test-psyonic": ("examples.hand_control.test_psyonic_hand", "main"),
     "test-teensy": ("examples.hand_control.test_teensy_hand", "main"),
     "interact-teensy": ("examples.hand_control.interact_teensy_hand", "main"),
     

@@ -1,7 +1,7 @@
 # ===== Paths =====
-BASE_PATH: "./Datasets/"
+BASE_PATH: "${ROOT_EMAGERLIB}/Datasets/"
 SESSION: "D1"
-MEDIA_PATH: "./media-test/"
+MEDIA_PATH: "${ROOT_EMAGERLIB}/media-test/"
 MODEL_NAME: null  # Set to null for auto-detection or specify model filename
 
 # ===== Gesture/classes configuration =====

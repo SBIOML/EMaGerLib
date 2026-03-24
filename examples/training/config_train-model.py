@@ -1,10 +1,10 @@
-from pathlib import Path
+from emagerlib import ROOT_EMAGERLIB
 
 # ===== Paths ===== #
-BASE_PATH = Path("./Datasets/")
+BASE_PATH = ROOT_EMAGERLIB / "Datasets"
 # BASE_PATH = Path("../data_collection/Datasets")
 SESSION = "Felix_5sessions"
-MEDIA_PATH = "./media-test/"
+MEDIA_PATH = str(ROOT_EMAGERLIB / "media-test")
 MODEL_NAME = None # Note: MODEL_NAME will find the last model if set to None but you can hardcode it
 # or put your own function in the config.py file
 # import emagerlib.utils.find_models as futils

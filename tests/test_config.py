@@ -3,9 +3,11 @@
 import unittest
 import tempfile
 import shutil
+import os
 from pathlib import Path
 from emagerlib.config.load_config import load_config
 from emagerlib.config.save_config import save_config
+from emagerlib import ROOT_EMAGERLIB
 
 
 class TestConfigSystem(unittest.TestCase):
@@ -160,6 +162,54 @@ class TestConfigSystem(unittest.TestCase):
         parts = filename.split("_")
         self.assertGreaterEqual(len(parts), 2)
         print("✓ Saved files include timestamp")
+
+    def test_08_python_config_independent_of_cwd(self):
+        """Test Python config path resolution is stable across different CWDs."""
+        config_file = self.config_dir / "base_config_example.py"
+        expected_base = (ROOT_EMAGERLIB / "Datasets").resolve()
+        expected_media = (ROOT_EMAGERLIB / "media-test").resolve()
+
+        original_cwd = Path.cwd()
+        candidate_cwds = [
+            self.test_dir,
+            self.config_dir,
+            ROOT_EMAGERLIB,
+        ]
+
+        try:
+            for cwd in candidate_cwds:
+                os.chdir(cwd)
+                cfg = load_config(config_file)
+                self.assertEqual(cfg.BASE_PATH.resolve(), expected_base)
+                self.assertEqual(Path(cfg.MEDIA_PATH).resolve(), expected_media)
+        finally:
+            os.chdir(original_cwd)
+
+        print("✓ Python config paths are independent of CWD")
+
+    def test_09_yaml_config_independent_of_cwd(self):
+        """Test YAML config path resolution is stable across different CWDs."""
+        config_file = self.config_dir / "base_config_example.yaml"
+        expected_base = (ROOT_EMAGERLIB / "Datasets").resolve()
+        expected_media = (ROOT_EMAGERLIB / "media-test").resolve()
+
+        original_cwd = Path.cwd()
+        candidate_cwds = [
+            self.test_dir,
+            self.config_dir,
+            ROOT_EMAGERLIB,
+        ]
+
+        try:
+            for cwd in candidate_cwds:
+                os.chdir(cwd)
+                cfg = load_config(config_file)
+                self.assertEqual(cfg.BASE_PATH.resolve(), expected_base)
+                self.assertEqual(Path(cfg.MEDIA_PATH).resolve(), expected_media)
+        finally:
+            os.chdir(original_cwd)
+
+        print("✓ YAML config paths are independent of CWD")
 
 if __name__ == '__main__':
     unittest.main()

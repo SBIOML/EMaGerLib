@@ -9,7 +9,7 @@ import subprocess
 import sys
 import threading
 from importlib import import_module
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 try:
     import tkinter as tk
@@ -27,6 +27,17 @@ DARK_BUTTON = "#333337"
 DARK_BUTTON_ACTIVE = "#3F3F46"
 DARK_TEXT = "#E6E6E6"
 ACCENT_TEXT = "#9CDCFE"
+
+LIGHT_BG = "#F3F3F3"
+LIGHT_PANEL = "#FFFFFF"
+LIGHT_BORDER = "#C8C8C8"
+LIGHT_INPUT = "#FFFFFF"
+LIGHT_BUTTON = "#E6E6E6"
+LIGHT_BUTTON_ACTIVE = "#DADADA"
+LIGHT_TEXT = "#1F1F1F"
+LIGHT_ACCENT_TEXT = "#005A9E"
+LIGHT_SELECTION = "#CCE8FF"
+DARK_SELECTION = "#264F78"
 
 
 def split_arguments(argument_string: str) -> List[str]:
@@ -60,7 +71,10 @@ class CommandLauncherGUI:
         self.root = tk.Tk()
         self.root.title("EMaGerLib Command Launcher")
         self.root.geometry("980x640")
-        self._apply_dark_theme()
+
+        self.current_theme = tk.StringVar(value="dark")
+        self.theme_button: Optional[Any] = None
+        self.command_combobox: Optional[Any] = None
 
         self.process: Optional[subprocess.Popen] = None
         self.output_queue: queue.Queue[str] = queue.Queue()
@@ -69,74 +83,164 @@ class CommandLauncherGUI:
         self.args_var = tk.StringVar()
         self.custom_command_var = tk.StringVar()
 
+        self._apply_theme("dark")
         self._build_layout()
+        self._apply_theme(self.current_theme.get())
         self._populate_presets()
         self._poll_output_queue()
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    def _apply_dark_theme(self) -> None:
-        self.root.configure(bg=DARK_BG)
+    def _apply_theme(self, theme_name: str) -> None:
+        if theme_name == "light":
+            colors = {
+                "bg": LIGHT_BG,
+                "panel": LIGHT_PANEL,
+                "border": LIGHT_BORDER,
+                "input": LIGHT_INPUT,
+                "button": LIGHT_BUTTON,
+                "button_active": LIGHT_BUTTON_ACTIVE,
+                "text": LIGHT_TEXT,
+                "accent": LIGHT_ACCENT_TEXT,
+                "selection": LIGHT_SELECTION,
+                "disabled": "#7A7A7A",
+            }
+        else:
+            colors = {
+                "bg": DARK_BG,
+                "panel": DARK_PANEL,
+                "border": DARK_BORDER,
+                "input": DARK_INPUT,
+                "button": DARK_BUTTON,
+                "button_active": DARK_BUTTON_ACTIVE,
+                "text": DARK_TEXT,
+                "accent": ACCENT_TEXT,
+                "selection": DARK_SELECTION,
+                "disabled": "#7A7A7A",
+            }
+
+        self.current_theme.set(theme_name)
+        self.root.configure(bg=colors["bg"])
 
         style = ttk.Style(self.root)
         style.theme_use("clam")
 
-        style.configure("TFrame", background=DARK_BG)
+        style.configure("TFrame", background=colors["bg"])
         style.configure(
             "TLabelframe",
-            background=DARK_BG,
-            foreground=DARK_TEXT,
-            bordercolor=DARK_BORDER,
-            lightcolor=DARK_BORDER,
-            darkcolor=DARK_BORDER,
+            background=colors["bg"],
+            foreground=colors["text"],
+            bordercolor=colors["border"],
+            lightcolor=colors["border"],
+            darkcolor=colors["border"],
         )
-        style.configure("TLabelframe.Label", background=DARK_BG, foreground=ACCENT_TEXT)
-        style.configure("TLabel", background=DARK_BG, foreground=DARK_TEXT)
+        style.configure("TLabelframe.Label", background=colors["bg"], foreground=colors["accent"])
+        style.configure("TLabel", background=colors["bg"], foreground=colors["text"])
         style.configure(
             "TButton",
-            background=DARK_BUTTON,
-            foreground=DARK_TEXT,
-            bordercolor=DARK_BORDER,
+            background=colors["button"],
+            foreground=colors["text"],
+            bordercolor=colors["border"],
             focusthickness=1,
-            focuscolor=DARK_BORDER,
+            focuscolor=colors["border"],
             padding=6,
         )
         style.map(
             "TButton",
-            background=[("active", DARK_BUTTON_ACTIVE), ("pressed", DARK_BUTTON_ACTIVE)],
-            foreground=[("disabled", "#7A7A7A")],
+            background=[("active", colors["button_active"]), ("pressed", colors["button_active"])],
+            foreground=[("disabled", colors["disabled"])],
+        )
+        style.configure(
+            "Theme.TButton",
+            background=colors["button"],
+            foreground=colors["accent"],
+            bordercolor=colors["border"],
+            focusthickness=1,
+            focuscolor=colors["border"],
+            padding=(4, 2),
+            width=3,
+        )
+        style.map(
+            "Theme.TButton",
+            background=[("active", colors["button_active"]), ("pressed", colors["button_active"])],
+            foreground=[("disabled", colors["disabled"])],
         )
         style.configure(
             "TEntry",
-            fieldbackground=DARK_INPUT,
-            foreground=DARK_TEXT,
-            insertcolor=DARK_TEXT,
-            bordercolor=DARK_BORDER,
+            fieldbackground=colors["input"],
+            foreground=colors["text"],
+            insertcolor=colors["text"],
+            bordercolor=colors["border"],
         )
         style.configure(
             "TCombobox",
-            fieldbackground=DARK_INPUT,
-            background=DARK_INPUT,
-            foreground=DARK_TEXT,
-            arrowcolor=DARK_TEXT,
-            bordercolor=DARK_BORDER,
+            fieldbackground=colors["input"],
+            background=colors["input"],
+            foreground=colors["text"],
+            arrowcolor=colors["text"],
+            bordercolor=colors["border"],
         )
         style.map(
             "TCombobox",
-            fieldbackground=[("readonly", DARK_INPUT)],
-            foreground=[("readonly", DARK_TEXT)],
-            selectbackground=[("readonly", DARK_INPUT)],
-            selectforeground=[("readonly", DARK_TEXT)],
+            fieldbackground=[("readonly", colors["input"])],
+            foreground=[("readonly", colors["text"])],
+            selectbackground=[("readonly", colors["input"])],
+            selectforeground=[("readonly", colors["text"])],
         )
 
-        self.root.option_add("*TCombobox*Listbox.background", DARK_INPUT)
-        self.root.option_add("*TCombobox*Listbox.foreground", DARK_TEXT)
-        self.root.option_add("*TCombobox*Listbox.selectBackground", DARK_BUTTON_ACTIVE)
-        self.root.option_add("*TCombobox*Listbox.selectForeground", DARK_TEXT)
+        self.root.option_add("*TCombobox*Listbox.background", colors["input"])
+        self.root.option_add("*TCombobox*Listbox.foreground", colors["text"])
+        self.root.option_add("*TCombobox*Listbox.selectBackground", colors["button_active"])
+        self.root.option_add("*TCombobox*Listbox.selectForeground", colors["text"])
+        self.root.option_add("*Listbox.background", colors["input"])
+        self.root.option_add("*Listbox.foreground", colors["text"])
+        self.root.option_add("*Listbox.selectBackground", colors["button_active"])
+        self.root.option_add("*Listbox.selectForeground", colors["text"])
+
+        self._configure_combobox_dropdown(colors)
+
+        if hasattr(self, "output_text"):
+            self.output_text.configure(
+                bg=colors["panel"],
+                fg=colors["text"],
+                insertbackground=colors["text"],
+                selectbackground=colors["selection"],
+            )
+
+        if self.theme_button is not None:
+            self.theme_button.configure(
+                text="☾" if theme_name == "light" else "☀"
+            )
+
+    def _configure_combobox_dropdown(self, colors: dict) -> None:
+        if self.command_combobox is None:
+            return
+
+        try:
+            popdown = self.root.tk.call("ttk::combobox::PopdownWindow", str(self.command_combobox))
+            listbox_widget = f"{popdown}.f.l"
+            self.root.eval(
+                f'{listbox_widget} configure -background "{colors["input"]}" '
+                f'-foreground "{colors["text"]}" '
+                f'-selectbackground "{colors["button_active"]}" '
+                f'-selectforeground "{colors["text"]}"'
+            )
+        except Exception:
+            pass
+
+    def _toggle_theme(self) -> None:
+        next_theme = "light" if self.current_theme.get() == "dark" else "dark"
+        self._apply_theme(next_theme)
 
     def _build_layout(self) -> None:
         main_frame = ttk.Frame(self.root, padding=12)
         main_frame.pack(fill=tk.BOTH, expand=True)
+
+        top_bar = ttk.Frame(main_frame)
+        top_bar.pack(fill=tk.X, padx=4, pady=(0, 6))
+
+        self.theme_button = ttk.Button(top_bar, text="☀", style="Theme.TButton", command=self._toggle_theme)
+        self.theme_button.pack(side=tk.RIGHT)
 
         preset_group = ttk.LabelFrame(main_frame, text="Run EMaGer Command", padding=10)
         preset_group.pack(fill=tk.X, padx=4, pady=4)
@@ -203,7 +307,7 @@ class CommandLauncherGUI:
             bg=DARK_PANEL,
             fg=DARK_TEXT,
             insertbackground=DARK_TEXT,
-            selectbackground="#264F78",
+            selectbackground=DARK_SELECTION,
             relief=tk.FLAT,
             borderwidth=0,
         )

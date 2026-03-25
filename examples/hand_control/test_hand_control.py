@@ -10,28 +10,28 @@ from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
 
-# Parse arguments
-parser = create_parser(
-    description="Test prosthetic hand control interface",
-    default_config=str(DEFAULT_CONFIG)
-)
-args = parser.parse_args()
-
-# Load configuration
-cfg = load_config(args.config)
-
-# Setup logging (after loading config so it can use config defaults)
-setup_logging(args, cfg, script_name="test_hand_control")
-
 # Create module logger (inherits from root logger configured above)
 logger = logging.getLogger(__name__)
 
-# Save config if requested (uses logging internally)
-save_config_if_requested(args, cfg, script_name="test_hand_control")
 
-logger.info("Loading hand control test...")
+def parse_args(argv=None):
+    parser = create_parser(
+        description="Test prosthetic hand control interface",
+        default_config=str(DEFAULT_CONFIG)
+    )
+    return parser.parse_args(argv)
 
-def test_hand(hand_type, **kwargs):
+
+def setup_runtime(argv=None):
+    args = parse_args(argv)
+    cfg = load_config(args.config)
+    setup_logging(args, cfg, script_name="test_hand_control")
+    save_config_if_requested(args, cfg, script_name="test_hand_control")
+    logger.info("Loading hand control test...")
+    return args, cfg
+
+
+def test_hand(hand_type, cfg, **kwargs):
     logger.info(f"=== Testing {hand_type.capitalize()} Hand ===")
     try:
         # Initialize hand
@@ -44,7 +44,7 @@ def test_hand(hand_type, **kwargs):
         # Test basic functionality
         logger.info("Testing basic gestures...")
         # gestures = ["Peace", "Hand_Close", "Hand_Open", "OK"]
-        gestures = cfg.CLASSES  # Using gesture indices from config
+        gestures = cfg.CLASSES
         for gesture in gestures:
             logger.info(f"Sending gesture: {gesture}")
             hand.send_gesture(gesture)
@@ -93,16 +93,18 @@ def test_hand(hand_type, **kwargs):
         raise e
 
 def main():
+    _, cfg = setup_runtime()
     logger.info("Starting hand control tests...")
     
     try:
-        test_hand("psyonic", stuffing=True)
+        test_hand("psyonic", cfg, stuffing=True)
         logger.info("All tests completed!") 
     except Exception as e:
         logger.error(f"Tests Failed! : {e}")
+    return 0
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
         
     
     

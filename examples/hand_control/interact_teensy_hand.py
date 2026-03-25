@@ -9,48 +9,46 @@ from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
 
-# Parse arguments
-parser = create_parser(
-    description="Test Psyonic hand control via Teensy controller",
-    default_config=str(DEFAULT_CONFIG)
-)
-parser.add_argument(
-    '--port',
-    type=str,
-    default=None,
-    help='Serial port for Teensy (e.g., COM3, /dev/ttyACM0). Auto-detects if not specified.'
-)
-parser.add_argument(
-    '--baudrate',
-    type=int,
-    default=115200,
-    help='Serial baudrate for Teensy communication (default: 115200)'
-)
-
-
-args = parser.parse_args()
-
-# Load configuration
-cfg = load_config(args.config)
-
-# Setup logging
-setup_logging(args, cfg, script_name="test_teensy_hand")
 logger = logging.getLogger(__name__)
 
-# Save config if requested
-save_config_if_requested(args, cfg, script_name="test_teensy_hand")
 
-# Setup gesture decoder with config
-setup_gesture_decoder(cfg)
+def parse_args(argv=None):
+    parser = create_parser(
+        description="Test Psyonic hand control via Teensy controller",
+        default_config=str(DEFAULT_CONFIG)
+    )
+    parser.add_argument(
+        '--port',
+        type=str,
+        default=None,
+        help='Serial port for Teensy (e.g., COM3, /dev/ttyACM0). Auto-detects if not specified.'
+    )
+    parser.add_argument(
+        '--baudrate',
+        type=int,
+        default=115200,
+        help='Serial baudrate for Teensy communication (default: 115200)'
+    )
+    return parser.parse_args(argv)
 
-logger.info("="*60)
-logger.info("Interactive Commands - Psyonic Hand Control Test via Teensy ")
-logger.info("="*60)
+
+def setup_runtime(argv=None):
+    args = parse_args(argv)
+    cfg = load_config(args.config)
+    setup_logging(args, cfg, script_name="test_teensy_hand")
+    save_config_if_requested(args, cfg, script_name="test_teensy_hand")
+    setup_gesture_decoder(cfg)
+    logger.info("=" * 60)
+    logger.info("Interactive Commands - Psyonic Hand Control Test via Teensy ")
+    logger.info("=" * 60)
+    return args, cfg
 
 
-def main():
+def main(argv=None):
     """Interactive command-line mode for manual UART testing."""
     from emagerlib.control.psyonic_teensy_control import PsyonicTeensyController
+
+    args, _ = setup_runtime(argv)
     
     logger.info("="*60)
     logger.info("Interactive UART Command Mode")
@@ -125,7 +123,8 @@ def main():
         logger.info("="*60)
         logger.info("Interactive mode exited")
         logger.info("="*60)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

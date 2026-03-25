@@ -34,87 +34,82 @@ import logging
 
 from emagerlib.control.psyonic_teensy_control import PsyonicTeensyControl
 from emagerlib.control.gesture_decoder import (
-    decode_gesture, 
-    decode_gesture_waypoints,
+    decode_gesture,
     setup_gesture_decoder
 )
-from emagerlib.control.constants import Gesture
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
 
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
 
-# Parse arguments
-parser = create_parser(
-    description="Test Psyonic hand control via Teensy controller",
-    default_config=str(DEFAULT_CONFIG)
-)
-parser.add_argument(
-    '--port',
-    type=str,
-    default=None,
-    help='Serial port for Teensy (e.g., COM3, /dev/ttyACM0). Auto-detects if not specified.'
-)
-parser.add_argument(
-    '--baudrate',
-    type=int,
-    default=115200,
-    help='Serial baudrate for Teensy communication (default: 115200)'
-)
-parser.add_argument(
-    '--gesture-duration',
-    type=float,
-    default=2.0,
-    help='Duration to hold each gesture in seconds (default: 2.0)'
-)
-parser.add_argument(
-    '--interactive',
-    action='store_true',
-    help='Run in interactive command-line mode for manual UART testing'
-)
-parser.add_argument(
-    '--test-fingers',
-    action='store_true',
-    help='Test individual finger control instead of gestures'
-)
-parser.add_argument(
-    '--test-controller2',
-    action='store_true',
-    help='Test the second Teensy controller (if available) instead of the main hand controller'
-)
-parser.add_argument(
-    '--test-delays',
-    action='store_true',
-    help='Test communication delays and responsiveness'
-)
-parser.add_argument(
-    '--test-waypoints',
-    action='store_true',
-    help='Test smooth gesture control with collision-aware waypoints'
-)
-
-args = parser.parse_args()
-
-# Load configuration
-cfg = load_config(args.config)
-
-# Setup logging
-setup_logging(args, cfg, script_name="test_teensy_hand")
 logger = logging.getLogger(__name__)
 
-# Save config if requested
-save_config_if_requested(args, cfg, script_name="test_teensy_hand")
 
-# Setup gesture decoder with config
-setup_gesture_decoder(cfg)
+def parse_args(argv=None):
+    parser = create_parser(
+        description="Test Psyonic hand control via Teensy controller",
+        default_config=str(DEFAULT_CONFIG)
+    )
+    parser.add_argument(
+        '--port',
+        type=str,
+        default=None,
+        help='Serial port for Teensy (e.g., COM3, /dev/ttyACM0). Auto-detects if not specified.'
+    )
+    parser.add_argument(
+        '--baudrate',
+        type=int,
+        default=115200,
+        help='Serial baudrate for Teensy communication (default: 115200)'
+    )
+    parser.add_argument(
+        '--gesture-duration',
+        type=float,
+        default=2.0,
+        help='Duration to hold each gesture in seconds (default: 2.0)'
+    )
+    parser.add_argument(
+        '--interactive',
+        action='store_true',
+        help='Run in interactive command-line mode for manual UART testing'
+    )
+    parser.add_argument(
+        '--test-fingers',
+        action='store_true',
+        help='Test individual finger control instead of gestures'
+    )
+    parser.add_argument(
+        '--test-controller2',
+        action='store_true',
+        help='Test the second Teensy controller (if available) instead of the main hand controller'
+    )
+    parser.add_argument(
+        '--test-delays',
+        action='store_true',
+        help='Test communication delays and responsiveness'
+    )
+    parser.add_argument(
+        '--test-waypoints',
+        action='store_true',
+        help='Test smooth gesture control with collision-aware waypoints'
+    )
+    return parser.parse_args(argv)
 
-logger.info("="*60)
-logger.info("Psyonic Hand Control via Teensy - Test Script")
-logger.info("="*60)
+
+def setup_runtime(argv=None):
+    args = parse_args(argv)
+    cfg = load_config(args.config)
+    setup_logging(args, cfg, script_name="test_teensy_hand")
+    save_config_if_requested(args, cfg, script_name="test_teensy_hand")
+    setup_gesture_decoder(cfg)
+    logger.info("=" * 60)
+    logger.info("Psyonic Hand Control via Teensy - Test Script")
+    logger.info("=" * 60)
+    return args, cfg
 
 
-def main():
+def run_main_gesture_test(args, cfg):
     """Main test function."""
     logger.info(f"Port: {args.port or 'auto-detect'}")
     logger.info(f"Baudrate: {args.baudrate}")
@@ -190,7 +185,7 @@ def main():
         logger.info("="*60)
 
 
-def test_individual_fingers():
+def test_individual_fingers(args):
     """Test individual finger control (alternative test mode)."""
     logger.info("Testing individual finger control...")
     
@@ -232,7 +227,7 @@ def test_individual_fingers():
         controller.disconnect()
 
 
-def interactive_command_mode():
+def interactive_command_mode(args):
     """Interactive command-line mode for manual UART testing."""
     from emagerlib.control.psyonic_teensy_control import PsyonicTeensyController
     
@@ -311,11 +306,17 @@ def interactive_command_mode():
         logger.info("="*60)
 
 
-if __name__ == "__main__":
-    # Route to appropriate test mode
+def main(argv=None):
+    args, cfg = setup_runtime(argv)
+
     if args.interactive:
-        interactive_command_mode()
+        interactive_command_mode(args)
     elif args.test_fingers:
-        test_individual_fingers()
+        test_individual_fingers(args)
     else:
-        main()  # Run main gesture test
+        run_main_gesture_test(args, cfg)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

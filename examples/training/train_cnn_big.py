@@ -1,44 +1,35 @@
-import torch
-from torch.utils.data import DataLoader, TensorDataset
-import numpy as np
-import datetime
-import matplotlib.pyplot as plt
 from pathlib import Path
 import logging
 
-from libemg.data_handler import OfflineDataHandler, RegexFilter
-from libemg.feature_extractor import FeatureExtractor
-from libemg.filtering import Filter
-
-import emagerlib.models.models as etm
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
-import time
 
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent / "config_train-model.py"
 
-# Parse arguments
-parser = create_parser(
-    description="Train CNN model on EMG data",
-    default_config=str(DEFAULT_CONFIG)
-)
-args = parser.parse_args()
-
-# Load configuration
-cfg = load_config(args.config)
-
-# Setup logging (after loading config so it can use config defaults)
-setup_logging(args, cfg, script_name="train_cnn")
-
 # Create module logger (inherits from root logger configured above)
 logger = logging.getLogger(__name__)
 
-# Save config if requested (uses logging internally)
-save_config_if_requested(args, cfg, script_name="train_cnn")
+def parse_args(argv=None):
+    parser = create_parser(
+        description="Train CNN model on EMG data",
+        default_config=str(DEFAULT_CONFIG)
+    )
+    return parser.parse_args(argv)
 
 
-def prepare_data(dataset_folder):
+def setup_runtime(argv=None):
+    args = parse_args(argv)
+    cfg = load_config(args.config)
+    setup_logging(args, cfg, script_name="train_cnn")
+    save_config_if_requested(args, cfg, script_name="train_cnn")
+    return args, cfg
+
+
+def prepare_data(dataset_folder, cfg):
+        from libemg.data_handler import OfflineDataHandler, RegexFilter
+        from libemg.filtering import Filter
+
         classes_values = [str(num) for num in range(cfg.NUM_CLASSES)]
         reps_values = [str(num) for num in range(cfg.NUM_REPS)]
         session_values =  [str(num) for num in range(0,5)]
@@ -57,8 +48,16 @@ def prepare_data(dataset_folder):
         filter.filter(odh)
         return odh
 
-def main():
-    data = prepare_data(cfg.DATASETS_PATH)
+def main(argv=None):
+    import datetime
+    import numpy as np
+    import torch
+    from torch.utils.data import DataLoader, TensorDataset
+    from libemg.feature_extractor import FeatureExtractor
+    import emagerlib.models.models as etm
+
+    _, cfg = setup_runtime(argv)
+    data = prepare_data(cfg.DATASETS_PATH, cfg)
     # for i in range(len(data.data)):
     #     plt.plot(data.data[i])
     #     plt.show()
@@ -125,6 +124,7 @@ def main():
     model_path = Path(cfg.SAVE_PATH) / f"big_cnn_{cfg.SESSION}_{acc}_{current_time}.pth"
     torch.save(classifier.state_dict(), model_path)
     logger.info(f"Model saved at {model_path}")
+    return 0
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

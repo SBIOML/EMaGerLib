@@ -6,9 +6,6 @@ from datetime import datetime
 from pathlib import Path
 import logging
 
-from libemg.data_handler import OnlineDataHandler
-from libemg.datasets import OneSubjectMyoDataset
-from libemg.gui import GUI
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
 from emagerlib.utils.streamer_utils import get_emager_streamer
@@ -16,34 +13,39 @@ from emagerlib.utils.streamer_utils import get_emager_streamer
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
 
-# Parse arguments
-parser = create_parser(
-    description="Screen-guided EMG training data collection",
-    default_config=str(DEFAULT_CONFIG)
-)
-args = parser.parse_args()
-
-# Load configuration
-cfg = load_config(args.config)
-
-# Setup logging (after loading config so it can use config defaults)
-setup_logging(args, cfg, script_name="screen_guided_training")
-
 # Create module logger (inherits from root logger configured above)
 logger = logging.getLogger(__name__)
 
-# Save config if requested (uses logging internally)
-save_config_if_requested(args, cfg, script_name="screen_guided_training")
+
+def parse_args(argv=None):
+    parser = create_parser(
+        description="Screen-guided EMG training data collection",
+        default_config=str(DEFAULT_CONFIG)
+    )
+    return parser.parse_args(argv)
 
 
-def main():
+def setup_runtime(argv=None):
+    args = parse_args(argv)
+    cfg = load_config(args.config)
+    setup_logging(args, cfg, script_name="screen_guided_training")
+    save_config_if_requested(args, cfg, script_name="screen_guided_training")
+    return args, cfg
+
+
+def main(argv=None):
+    from libemg.data_handler import OnlineDataHandler
+    from libemg.gui import GUI
+
+    _, cfg = setup_runtime(argv)
+
     # Create data handler and streamer
     p, smi = get_emager_streamer(cfg.EMAGER_VERSION)
     logger.info(f"Streamer created: process: {p}, smi : {smi}")
     odh = OnlineDataHandler(shared_memory_items=smi)
     logger.info("Data handler created")
 
-    args = {
+    gui_args = {
         "online_data_handler": odh,
         "media_folder": cfg.MEDIA_PATH,
         "data_folder": cfg.DATAFOLDER,
@@ -53,7 +55,7 @@ def main():
         "auto_advance": True
     }
     
-    gui = GUI(odh, args=args, debug=False, width=900, height=800)
+    gui = GUI(odh, args=gui_args, debug=False, width=900, height=800)
     gui.download_gestures(cfg.CLASSES, cfg.MEDIA_PATH, download_gifs=False)
 
     dataset_path = os.path.abspath(str(cfg.DATAFOLDER))
@@ -90,10 +92,10 @@ def main():
                     i += 1
                 os.makedirs(candidate, exist_ok=True)
                 cfg.DATAFOLDER = candidate
-                args["data_folder"] = cfg.DATAFOLDER
+                gui_args["data_folder"] = cfg.DATAFOLDER
                 # Try to update GUI-held args if possible
                 try:
-                    setattr(gui, "args", args)
+                    setattr(gui, "args", gui_args)
                 except Exception:
                     pass
                 logger.info(f"Dataset directory renamed to '{cfg.DATAFOLDER}'. Using that path for this run.")
@@ -110,6 +112,7 @@ def main():
     gui.start_gui()
 
     logger.info(f"Data saved in: {cfg.DATAFOLDER}")
+    return 0
     
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

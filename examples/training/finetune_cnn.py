@@ -1,19 +1,8 @@
-import torch
-from torch.utils.data import DataLoader, TensorDataset
-import numpy as np
-import datetime
-import matplotlib.pyplot as plt
 from pathlib import Path
 import logging
 
-from libemg.data_handler import OfflineDataHandler, RegexFilter
-from libemg.feature_extractor import FeatureExtractor
-from libemg.filtering import Filter
-
-import emagerlib.models.models as etm
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
-import time
 
 
 # ============================================================
@@ -21,30 +10,12 @@ import time
 # ============================================================
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "examples" / "training" / "config_train-model.py"
 
-# Parse arguments
-parser = create_parser(
-    description="Train / fine-tune CNN model on EMG data",
-    default_config=str(DEFAULT_CONFIG)
-)
-args = parser.parse_args()
-
-# Load configuration
-cfg = load_config(args.config)
-
-# Setup logging
-setup_logging(args, cfg, script_name="train_cnn")
 logger = logging.getLogger(__name__)
-
-# Save config if requested
-save_config_if_requested(args, cfg, script_name="train_cnn")
 
 
 # ============================================================
 # FINE-TUNING SETTINGS
 # ============================================================
-# Put your pretrained .pth path here
-PRETRAINED_MODEL_PATH = Path(cfg.SAVE_PATH) / "your_pretrained_model.pth"
-
 # Number of parameter tensors to freeze from the beginning
 # Start small if unsure, e.g. 2, 4, 6
 FREEZE_FIRST_N_PARAMS = 14
@@ -54,10 +25,29 @@ FREEZE_FIRST_N_PARAMS = 14
 USE_PRETRAINED = True
 
 
+def parse_args(argv=None):
+    parser = create_parser(
+        description="Train / fine-tune CNN model on EMG data",
+        default_config=str(DEFAULT_CONFIG)
+    )
+    return parser.parse_args(argv)
+
+
+def setup_runtime(argv=None):
+    args = parse_args(argv)
+    cfg = load_config(args.config)
+    setup_logging(args, cfg, script_name="train_cnn")
+    save_config_if_requested(args, cfg, script_name="train_cnn")
+    return args, cfg
+
+
 # ============================================================
 # DATA PREPARATION
 # ============================================================
-def prepare_data(dataset_folder):
+def prepare_data(dataset_folder, cfg):
+    from libemg.data_handler import OfflineDataHandler, RegexFilter
+    from libemg.filtering import Filter
+
     classes_values = [str(num) for num in range(cfg.NUM_CLASSES)]
     reps_values = [str(num) for num in range(cfg.NUM_REPS)]
 
@@ -92,6 +82,8 @@ def load_pretrained_weights(model, model_path, device="cpu"):
 
     if not model_path.exists():
         raise FileNotFoundError(f"Pretrained model not found: {model_path}")
+
+    import torch
 
     state_dict = torch.load(model_path, map_location=device)
     model.load_state_dict(state_dict, strict=True)
@@ -144,11 +136,22 @@ def print_trainable_summary(model):
 # ============================================================
 # MAIN
 # ============================================================
-def main():
+def main(argv=None):
+    import datetime
+    import time
+    import numpy as np
+    import torch
+    from torch.utils.data import DataLoader, TensorDataset
+    from libemg.feature_extractor import FeatureExtractor
+    import emagerlib.models.models as etm
+
+    _, cfg = setup_runtime(argv)
+    pretrained_model_path = Path(cfg.SAVE_PATH) / "your_pretrained_model.pth"
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Using device: {device}")
 
-    data = prepare_data(cfg.DATASETS_PATH)
+    data = prepare_data(cfg.DATASETS_PATH, cfg)
 
     # Split data into training and testing
     train_data_obj = data.isolate_data("reps", [0, 1, 2])
@@ -197,7 +200,7 @@ def main():
 
     # Load pretrained weights if requested
     if USE_PRETRAINED:
-        load_pretrained_weights(classifier, PRETRAINED_MODEL_PATH, device=device)
+        load_pretrained_weights(classifier, pretrained_model_path, device=device)
 
         # Freeze first few layers/parameter tensors
         freeze_first_n_parameters(classifier, FREEZE_FIRST_N_PARAMS)
@@ -224,7 +227,8 @@ def main():
     model_path = Path(cfg.SAVE_PATH) / f"libemg_torch_cnn_finetuned_{cfg.SESSION}_{acc}_{current_time}.pth"
     torch.save(classifier.state_dict(), model_path)
     logger.info(f"Model saved at {model_path}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

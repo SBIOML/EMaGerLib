@@ -7,7 +7,12 @@ logger = logging.getLogger(__name__)
 ### GESTURES JSON UTILS ###
 
 def get_images_list(images_folder:str):
-    images = [images_folder + f for f in os.listdir(images_folder) if os.path.isfile(os.path.join(images_folder, f)) and (f.endswith('.png') or f.endswith('.jpg'))]
+    images_folder = os.fspath(images_folder)
+    images = [
+        os.path.join(images_folder, f)
+        for f in os.listdir(images_folder)
+        if os.path.isfile(os.path.join(images_folder, f)) and f.lower().endswith((".png", ".jpg"))
+    ]
     return images
 
 def get_images_folder(images_list:list):
@@ -24,16 +29,20 @@ def get_gestures_dict(images):
     images must be a list of images or a string of a folder containing images.
     '''
     if isinstance(images, list):
-        images = get_images_folder(images)
-    images_folder = images
-    if isinstance(images_folder, str):
-        if not os.path.exists(images_folder):
-            raise FileNotFoundError(f"Folder not found: {images_folder}")
-        list_file = list(filter(lambda f: f.endswith("json"), os.listdir(images_folder)))[0]
-    if not list_file:
+        images_folder = get_images_folder(images)
+    else:
+        images_folder = images
+
+    images_folder = os.fspath(images_folder)
+    if not os.path.exists(images_folder):
+        raise FileNotFoundError(f"Folder not found: {images_folder}")
+
+    json_files = [f for f in os.listdir(images_folder) if f.lower().endswith(".json")]
+    if not json_files:
         logger.warning(f"No JSON file found in {images_folder}")
         return None
-    with open(images_folder + "/" + list_file, "r") as f:
+
+    with open(os.path.join(images_folder, json_files[0]), "r", encoding="utf-8") as f:
         gestures_dict = json.load(f)
     return gestures_dict
 

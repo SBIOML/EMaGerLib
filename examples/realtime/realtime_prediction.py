@@ -3,7 +3,6 @@ import time
 from pathlib import Path
 import logging
 import sys
-
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
 from emagerlib.utils.streamer_utils import get_emager_streamer

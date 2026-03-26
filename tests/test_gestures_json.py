@@ -47,7 +47,7 @@ class TestGesturesJson(unittest.TestCase):
 
     def test_01_get_images_list(self):
         """Test getting list of image files from folder"""
-        images = get_images_list(str(self.images_folder) + "/")
+        images = get_images_list(str(self.images_folder))
         
         # Should find 3 images (.png and .jpg only, not .txt)
         self.assertEqual(len(images), 3)
@@ -56,7 +56,7 @@ class TestGesturesJson(unittest.TestCase):
 
     def test_02_get_images_folder(self):
         """Test extracting folder from image list"""
-        images = get_images_list(str(self.images_folder) + "/")
+        images = get_images_list(str(self.images_folder))
         folder = get_images_folder(images)
         
         self.assertEqual(Path(folder), self.images_folder)
@@ -85,7 +85,7 @@ class TestGesturesJson(unittest.TestCase):
 
     def test_06_get_gestures_dict_from_image_list(self):
         """Test loading gestures dictionary from image list"""
-        images = get_images_list(str(self.images_folder) + "/")
+        images = get_images_list(str(self.images_folder))
         gestures = get_gestures_dict(images)
         
         self.assertIsNotNone(gestures)
@@ -100,7 +100,7 @@ class TestGesturesJson(unittest.TestCase):
 
     def test_08_get_index_from_label(self):
         """Test finding image index from gesture label"""
-        images = get_images_list(str(self.images_folder) + "/")
+        images = get_images_list(str(self.images_folder))
         index = get_index_from_label(1, images, self.gestures_dict)
         
         self.assertIsNotNone(index)
@@ -109,7 +109,7 @@ class TestGesturesJson(unittest.TestCase):
 
     def test_09_get_label_from_index(self):
         """Test finding gesture label from image index"""
-        images = get_images_list(str(self.images_folder) + "/")
+        images = get_images_list(str(self.images_folder))
         
         # Find index of gesture_2
         index = None

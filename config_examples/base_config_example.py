@@ -2,8 +2,8 @@ from emagerlib import ROOT_EMAGERLIB
 
 # ===== Paths ===== #
 BASE_PATH = ROOT_EMAGERLIB / "Datasets"
-SESSION = "EM01"
-MEDIA_PATH = str(ROOT_EMAGERLIB / "media-test")
+SESSION = "finetune_mars_25_1"
+MEDIA_PATH = ROOT_EMAGERLIB / "media-test"
 MODEL_NAME = None # Note: MODEL_NAME will find the last model if set to None but you can hardcode it 
 # or put your own function in the config.py file
 # import emagerlib.utils.find_models as futils
@@ -12,9 +12,9 @@ MODEL_NAME = None # Note: MODEL_NAME will find the last model if set to None but
 
 # ===== Gesture/classes configuration ===== #
 # hand_close, hand_open, index extension, ok, thumbs up
-CLASSES = [2, 3, 30, 1, 14, 18, 19]
-NUM_CLASSES = 7
-NUM_REPS = 5
+CLASSES = [1, 2, 3, 14, 18, 19, 30]
+NUM_CLASSES = len(CLASSES)
+NUM_REPS = 3
 REP_TIME = 3
 REST_TIME = 1
 
@@ -23,9 +23,9 @@ MAJORITY_VOTE = 30
 WINDOW_SIZE = 200
 WINDOW_INCREMENT = 10
 EPOCH = 10
-SAMPLING = 1008
+SAMPLING = 2000
 TRAIN_REPS = [0,1,2]
-TEST_REPS = [3,4]
+TEST_REPS = [1]
 FILTER = False
 VIRTUAL = False
 PORT = None

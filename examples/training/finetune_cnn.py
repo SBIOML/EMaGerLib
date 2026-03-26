@@ -1,6 +1,7 @@
 from pathlib import Path
 import logging
 
+from emagerlib import ROOT_EMAGERLIB
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
 
@@ -8,7 +9,7 @@ from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config
 # ============================================================
 # Default configuration path
 # ============================================================
-DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "examples" / "training" / "config_train-model.py"
+DEFAULT_CONFIG = ROOT_EMAGERLIB / "examples" / "training" / "config_train-model.py"
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +17,12 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # FINE-TUNING SETTINGS
 # ============================================================
+# Put your pretrained .pth path here
+PRETRAINED_MODEL_PATH = ROOT_EMAGERLIB / "models" / "Felix_5sessions.pth"
+print(PRETRAINED_MODEL_PATH)
 # Number of parameter tensors to freeze from the beginning
 # Start small if unsure, e.g. 2, 4, 6
-FREEZE_FIRST_N_PARAMS = 14
+FREEZE_FIRST_N_PARAMS = 16
 
 # Set to True if you want to load a pretrained model and fine-tune it
 # Set to False if you want to train from scratch
@@ -154,8 +158,8 @@ def main(argv=None):
     data = prepare_data(cfg.DATASETS_PATH, cfg)
 
     # Split data into training and testing
-    train_data_obj = data.isolate_data("reps", [0, 1, 2])
-    test_data_obj = data.isolate_data("reps", [3, 4])
+    train_data_obj = data.isolate_data("reps", cfg.TRAIN_REPS)
+    test_data_obj = data.isolate_data("reps", cfg.TEST_REPS)
 
     # Extract windows
     train_windows, train_meta = train_data_obj.parse_windows(cfg.WINDOW_SIZE, cfg.WINDOW_INCREMENT)

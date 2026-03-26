@@ -1,5 +1,6 @@
 """
 Real-time EMG control using Psyonic Hand via Teensy Controller.
+
 """
 
 import threading
@@ -83,10 +84,11 @@ def run_controller_thread(ctrl, cfg, args):
         )
         comm_controller.connect()
         logger.info("Teensy controller connected and ready")
-
+        
+        # Load gesture mappings
         gestures_dict = gjutils.get_gestures_dict(cfg.MEDIA_PATH)
         images = gjutils.get_images_list(cfg.MEDIA_PATH)
-
+        
         logger.info("Connected to LibEMG shared memory")
 
         last_sent_gesture = None

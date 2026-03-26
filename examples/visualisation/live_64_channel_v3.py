@@ -250,6 +250,8 @@ class SharedMemoryConsumerVStack(QtCore.QThread):
 
     def run(self):
         t_next = time.monotonic()
+        initialized = False
+
         while not self._stop:
             now = time.monotonic()
             if now < t_next:
@@ -263,46 +265,36 @@ class SharedMemoryConsumerVStack(QtCore.QThread):
                 t_next = time.monotonic() + self.poll_period
                 continue
 
-            # --- EMG ---
+            # First read: sync to "now" so we do not ingest old backlog
+            if not initialized:
+                if MOD_EMG in count:
+                    self.last_emg_count = int(count[MOD_EMG][0][0])
+                if MOD_IMU in count:
+                    self.last_imu_count = int(count[MOD_IMU][0][0])
+                if MOD_SAMPLE_ID in count:
+                    self.last_sid_count = int(count[MOD_SAMPLE_ID][0][0])
+
+                initialized = True
+                t_next = time.monotonic() + self.poll_period
+                continue
+
+            # --- EMG handling ---
             if MOD_EMG in vals and MOD_EMG in count:
-                total_emg = int(count[MOD_EMG][0][0])  # absolute rows ever produced
+                total_emg = int(count[MOD_EMG][0][0])
                 new_emg = total_emg - self.last_emg_count
+
                 if new_emg > 0:
-                    emg_buf = vals[MOD_EMG]  # (H,64) where TOP contains newest rows
-                    chunk = self._take_new_from_vstack_buffer(emg_buf, new_emg)  # (N,64)
+                    emg_buf = vals[MOD_EMG]  # expected shape: (rows, 64)
+                    new_chunk = self._take_new_from_vstack_buffer(emg_buf, new_emg)
 
-                    # Convert to channels x time for plotting
-                    block_ch_time = chunk.T.astype(np.float32, copy=False)  # (64,N)
-                    self.rbuf.append_block(block_ch_time)
+                    if new_chunk is not None and new_chunk.size > 0:
+                        # convert (time, ch) -> (ch, time) for plotting
+                        block_ch_time = new_chunk.T
+                        self.rbuf.append_block(block_ch_time)
 
-                    self.last_emg_count += int(chunk.shape[0])
-
-            # --- sample_id (optional for status/debug) ---
-            if MOD_SAMPLE_ID in vals and MOD_SAMPLE_ID in count:
-                total_sid = int(count[MOD_SAMPLE_ID][0][0])
-                new_sid = total_sid - self.last_sid_count
-                if new_sid > 0:
-                    sid_buf = vals[MOD_SAMPLE_ID]  # (H,1)
-                    sid_chunk = self._take_new_from_vstack_buffer(sid_buf, new_sid)  # (N,1)
-                    if sid_chunk.shape[0] > 0:
-                        self.last_sample_id = int(sid_chunk[-1, 0])  # last (newest chronologically)
-                    self.last_sid_count += int(sid_chunk.shape[0])
-
-            # --- IMU (optional status display) ---
-            if MOD_IMU in vals and MOD_IMU in count:
-                total_imu = int(count[MOD_IMU][0][0])
-                new_imu = total_imu - self.last_imu_count
-                if new_imu > 0:
-                    imu_buf = vals[MOD_IMU]  # (H,6)
-                    imu_chunk = self._take_new_from_vstack_buffer(imu_buf, new_imu)  # (N,6)
-                    if imu_chunk.shape[0] > 0:
-                        last_imu = imu_chunk[-1]
-                        msg = f"sample_id={self.last_sample_id} | imu={last_imu.tolist()}"
-                        self.status.emit(msg)
-                    self.last_imu_count += int(imu_chunk.shape[0])
+                    self.last_emg_count = total_emg
 
             t_next = time.monotonic() + self.poll_period
-
     def stop(self):
         self._stop = True
 

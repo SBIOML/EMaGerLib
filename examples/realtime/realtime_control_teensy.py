@@ -10,6 +10,7 @@ Buffers:
 - send_buffer: Tracks last sent gesture to avoid duplicates
 """
 
+import os
 import threading
 import time
 from queue import Queue, Empty
@@ -117,8 +118,8 @@ def run_controller_thread(ctrl):
         logger.info("Teensy controller connected and ready")
         
         # Load gesture mappings
-        gestures_dict = gjutils.get_gestures_dict(cfg.MEDIA_PATH)
-        images = gjutils.get_images_list(cfg.MEDIA_PATH)
+        gestures_dict = gjutils.get_gestures_dict(cfg.MEDIA_PATH + os.sep)
+        images = gjutils.get_images_list(cfg.MEDIA_PATH + os.sep)
         
         logger.info("Connected to LibEMG shared memory")
         

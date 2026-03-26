@@ -54,7 +54,7 @@ def main():
     }
     
     gui = GUI(odh, args=args, debug=False, width=900, height=800)
-    gui.download_gestures(cfg.CLASSES, cfg.MEDIA_PATH, download_gifs=False)
+    gui.download_gestures(cfg.CLASSES, cfg.MEDIA_PATH+ os.sep, download_gifs=False)
 
     dataset_path = os.path.abspath(str(cfg.DATAFOLDER))
 

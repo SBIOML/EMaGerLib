@@ -39,7 +39,7 @@ COMMANDS: Dict[str, Tuple[str, str]] = {
     # Training
     "train-cnn": ("examples.training.train_cnn", "main"),
     "train-cnn-big": ("examples.training.train_cnn_big", "main"),
-    "fine-tune-cnn": ("examples.training.fine_tune_cnn", "main"),
+    "finetune-cnn": ("examples.training.finetune_cnn", "main"),
     
     # Visualization
     "visualize-libemg": ("examples.visualisation.libemg_visualize", "main"),

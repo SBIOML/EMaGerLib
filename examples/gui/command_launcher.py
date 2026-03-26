@@ -1,32 +1,35 @@
-"""PyQt-based GUI command launcher for EMaGerLib (comparison implementation)."""
+#!/usr/bin/env python3
+"""PyQt-based GUI command launcher for EMaGerLib with collapsible sections and quick-launch buttons."""
 
 import ast
 import os
 import shlex
-import subprocess
 import sys
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
+from emagerlib import ROOT_EMAGERLIB
+
 try:
-    from PyQt6.QtCore import QProcess
+    from PyQt6.QtCore import QProcess, Qt
     from PyQt6.QtGui import QFont
     from PyQt6.QtWidgets import (
         QApplication,
-        QFileDialog,
         QComboBox,
+        QFileDialog,
+        QFrame,
         QGridLayout,
-        QGroupBox,
         QHBoxLayout,
         QLabel,
         QLineEdit,
         QMainWindow,
         QPushButton,
+        QScrollArea,
+        QSizePolicy,
         QTextEdit,
         QVBoxLayout,
         QWidget,
-        QScrollArea,
     )
 except ImportError:  # pragma: no cover
     QProcess = None
@@ -37,10 +40,74 @@ from emagerlib.config.load_config import load_config
 from emagerlib.config.save_config import save_config
 
 
+# ---------------------------------------------------------------------
+# Quick-launch setup
+# ---------------------------------------------------------------------
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+QUICK_ACTIONS = [
+    {
+        "label": "Live 64 V3",
+        "kind": "emager",
+        "target": "live-64ch-v3",
+        "use_config": False,
+        "extra_args": "",
+    },
+    {
+        "label": "Live Heatmap",
+        "kind": "script",
+        "target": PROJECT_ROOT.parent / "visualisation" / "live_heatmap.py",
+        "use_config": False,
+        "extra_args": "",
+    },
+    {
+        "label": "Live IMU",
+        "kind": "script",
+        "target": PROJECT_ROOT.parent / "visualisation" / "live_imu.py",
+        "use_config": False,
+        "extra_args": "",
+    },
+    {
+        "label": "Screen Guided Training",
+        "kind": "emager",
+        "target": "screen-training",
+        "use_config": True,
+        "extra_args": "",
+    },
+    {
+        "label": "Train Full CNN",
+        "kind": "emager",
+        "target": "train-cnn",
+        "use_config": True,
+        "extra_args": "",
+    },
+    {
+        "label": "Fine Tune",
+        "kind": "emager",
+        "target": "finetune-cnn",
+        "use_config": True,
+        "extra_args": "",
+    },
+    {
+        "label": "Realtime Prediction",
+        "kind": "script",
+        "target": PROJECT_ROOT.parent / "realtime" / "realtime_prediction.py",
+        "use_config": True,
+        "extra_args": "",
+    },
+    {
+        "label": "Realtime Teensy Control",
+        "kind": "emager",
+        "target": "realtime-control-teensy",
+        "use_config": True,
+        "extra_args": "",
+    },
+]
+
+
 def get_available_emager_commands():
     """Return available emager commands excluding the GUI launcher itself."""
     from examples.main import COMMANDS
-
     return sorted(command for command in COMMANDS if command != "gui")
 
 
@@ -52,36 +119,32 @@ def build_emager_command(command_name, extra_args=""):
     return command
 
 
+def build_script_command(script_path: Path, extra_args=""):
+    """Build a command list to execute a Python script directly."""
+    command = [sys.executable, str(script_path)]
+    if extra_args and extra_args.strip():
+        command.extend(shlex.split(extra_args, posix=(os.name != "nt")))
+    return command
+
+
 LIGHT_STYLESHEET = """
 QWidget {
     background-color: #f4f5f7;
     color: #202124;
     font-size: 10pt;
 }
-QGroupBox {
+QFrame#sectionFrame {
     border: 1px solid #d0d3d8;
     border-radius: 8px;
-    margin-top: 10px;
-    padding-top: 8px;
-    font-weight: 600;
+    background-color: #f4f5f7;
 }
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 10px;
-    padding: 0 4px;
+QWidget#sectionHeader {
+    background-color: transparent;
+}
+QLabel#sectionTitle {
     color: #005a9e;
-}
-QLineEdit, QComboBox, QTextEdit {
-    background-color: #ffffff;
-    color: #202124;
-    border: 1px solid #c7ccd3;
-    border-radius: 6px;
-    padding: 6px;
-}
-QComboBox QAbstractItemView {
-    background-color: #ffffff;
-    color: #202124;
-    selection-background-color: #dbeeff;
+    font-weight: 600;
+    font-size: 10pt;
 }
 QPushButton {
     background-color: #e9edf2;
@@ -96,13 +159,42 @@ QPushButton:hover {
 QPushButton#themeButton {
     min-width: 30px;
     max-width: 30px;
-    padding: 4px;
+    min-height: 30px;
+    max-height: 30px;
+    padding: 0px;
     border-radius: 15px;
     font-size: 14px;
     color: #005a9e;
 }
+QPushButton#sectionToggleButton {
+    min-width: 18px;
+    max-width: 18px;
+    min-height: 18px;
+    max-height: 18px;
+    padding: 0px;
+    border-radius: 4px;
+    font-size: 10pt;
+    font-weight: 700;
+}
+QPushButton#quickLaunchButton {
+    min-height: 32px;
+    max-height: 32px;
+    padding: 4px 10px;
+    font-weight: 600;
+}
+QLineEdit, QComboBox, QTextEdit {
+    background-color: #ffffff;
+    color: #202124;
+    border: 1px solid #c7ccd3;
+    border-radius: 6px;
+    padding: 6px;
+}
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    color: #202124;
+    selection-background-color: #dbeeff;
+}
 """
-
 
 DARK_STYLESHEET = """
 QWidget {
@@ -110,30 +202,18 @@ QWidget {
     color: #e8eaed;
     font-size: 10pt;
 }
-QGroupBox {
+QFrame#sectionFrame {
     border: 1px solid #3a3f47;
     border-radius: 8px;
-    margin-top: 10px;
-    padding-top: 8px;
-    font-weight: 600;
+    background-color: #1f2125;
 }
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 10px;
-    padding: 0 4px;
+QWidget#sectionHeader {
+    background-color: transparent;
+}
+QLabel#sectionTitle {
     color: #8ecbff;
-}
-QLineEdit, QComboBox, QTextEdit {
-    background-color: #2a2d33;
-    color: #e8eaed;
-    border: 1px solid #3f4550;
-    border-radius: 6px;
-    padding: 6px;
-}
-QComboBox QAbstractItemView {
-    background-color: #2a2d33;
-    color: #e8eaed;
-    selection-background-color: #3f546b;
+    font-weight: 600;
+    font-size: 10pt;
 }
 QPushButton {
     background-color: #343942;
@@ -148,21 +228,122 @@ QPushButton:hover {
 QPushButton#themeButton {
     min-width: 30px;
     max-width: 30px;
-    padding: 4px;
+    min-height: 30px;
+    max-height: 30px;
+    padding: 0px;
     border-radius: 15px;
     font-size: 14px;
     color: #8ecbff;
 }
+QPushButton#sectionToggleButton {
+    min-width: 18px;
+    max-width: 18px;
+    min-height: 18px;
+    max-height: 18px;
+    padding: 0px;
+    border-radius: 4px;
+    font-size: 10pt;
+    font-weight: 700;
+}
+QPushButton#quickLaunchButton {
+    min-height: 32px;
+    max-height: 32px;
+    padding: 4px 10px;
+    font-weight: 600;
+}
+QLineEdit, QComboBox, QTextEdit {
+    background-color: #2a2d33;
+    color: #e8eaed;
+    border: 1px solid #3f4550;
+    border-radius: 6px;
+    padding: 6px;
+}
+QComboBox QAbstractItemView {
+    background-color: #2a2d33;
+    color: #e8eaed;
+    selection-background-color: #3f546b;
+}
 """
 
 
+class CollapsibleSection(QFrame):
+    """Compact collapsible section with reversible triangle toggle."""
+
+    def __init__(self, title: str, expanded: bool = True, collapsed_height: int = 36, parent=None):
+        super().__init__(parent)
+        self.setObjectName("sectionFrame")
+        self._expanded = expanded
+        self._collapsed_height = collapsed_height
+
+        self._main_layout = QVBoxLayout(self)
+        self._main_layout.setContentsMargins(8, 6, 8, 6)
+        self._main_layout.setSpacing(4)
+
+        self.header = QWidget(self)
+        self.header.setObjectName("sectionHeader")
+        self.header_layout = QHBoxLayout(self.header)
+        self.header_layout.setContentsMargins(0, 0, 0, 0)
+        self.header_layout.setSpacing(6)
+
+        self.toggle_button = QPushButton("▾" if expanded else "▸")
+        self.toggle_button.setObjectName("sectionToggleButton")
+        self.toggle_button.clicked.connect(self.toggle)
+
+        self.title_label = QLabel(title)
+        self.title_label.setObjectName("sectionTitle")
+
+        self.header_layout.addWidget(self.toggle_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.header_layout.addWidget(self.title_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.header_layout.addStretch(1)
+
+        self.content = QWidget(self)
+        self.content_layout = QVBoxLayout(self.content)
+        self.content_layout.setContentsMargins(2, 2, 2, 2)
+        self.content_layout.setSpacing(8)
+
+        self._main_layout.addWidget(self.header)
+        self._main_layout.addWidget(self.content)
+
+        self.set_expanded(expanded)
+
+    def set_expanded(self, expanded: bool):
+        self._expanded = expanded
+        self.toggle_button.setText("▾" if expanded else "▸")
+
+        if expanded:
+            self.content.setVisible(True)
+            self.content.setMinimumHeight(0)
+            self.content.setMaximumHeight(16777215)
+            self.content.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+            self.setMinimumHeight(0)
+            self.setMaximumHeight(16777215)
+            self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        else:
+            self.content.setVisible(False)
+            self.content.setMinimumHeight(0)
+            self.content.setMaximumHeight(0)
+            self.content.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            self.setMinimumHeight(self._collapsed_height)
+            self.setMaximumHeight(self._collapsed_height)
+            self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+
+        self.updateGeometry()
+
+    def toggle(self):
+        self.set_expanded(not self._expanded)
+
+    def is_expanded(self) -> bool:
+        return self._expanded
+
+
 class CommandLauncherPyQt(QMainWindow):
-    """Alternative launcher using PyQt for UI comparison."""
+    """Launcher using PyQt with stable-size reversible collapsible sections."""
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("EMaGerLib Command Launcher (PyQt)")
-        self.resize(1020, 670)
+        self.resize(1120, 800)
+        self.setMinimumSize(980, 680)
 
         self.current_theme = "dark"
         self.config_inputs = {}
@@ -173,13 +354,15 @@ class CommandLauncherPyQt(QMainWindow):
         self.last_saved_config_path = None
 
         self.process = QProcess(self)
+        self.process.setWorkingDirectory(str(PROJECT_ROOT))
         self.process.readyReadStandardOutput.connect(self._read_process_output)
         self.process.readyReadStandardError.connect(self._read_process_output)
         self.process.finished.connect(self._on_process_finished)
 
         central = QWidget(self)
-        root_layout = QVBoxLayout(central)
-        root_layout.setSpacing(10)
+        self.root_layout = QVBoxLayout(central)
+        self.root_layout.setContentsMargins(10, 10, 10, 10)
+        self.root_layout.setSpacing(8)
 
         top_bar = QHBoxLayout()
         top_bar.addStretch(1)
@@ -187,10 +370,40 @@ class CommandLauncherPyQt(QMainWindow):
         self.theme_button.setObjectName("themeButton")
         self.theme_button.clicked.connect(self._toggle_theme)
         top_bar.addWidget(self.theme_button)
-        root_layout.addLayout(top_bar)
+        self.root_layout.addLayout(top_bar)
 
-        emager_group = QGroupBox("Run EMaGer Command")
-        emager_layout = QGridLayout(emager_group)
+        self.quick_launch_frame = QFrame(self)
+        self.quick_launch_frame.setObjectName("sectionFrame")
+        self.quick_launch_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        quick_launch_layout = QVBoxLayout(self.quick_launch_frame)
+        quick_launch_layout.setContentsMargins(8, 8, 8, 8)
+        quick_launch_layout.setSpacing(6)
+
+        quick_launch_title = QLabel("Quick Launch")
+        quick_launch_title.setObjectName("sectionTitle")
+        quick_launch_layout.addWidget(quick_launch_title)
+
+        quick_buttons_layout = QGridLayout()
+        quick_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        quick_buttons_layout.setHorizontalSpacing(8)
+        quick_buttons_layout.setVerticalSpacing(8)
+
+        for idx, action in enumerate(QUICK_ACTIONS):
+            btn = QPushButton(action["label"])
+            btn.setObjectName("quickLaunchButton")
+            btn.clicked.connect(lambda _checked=False, a=action: self._run_quick_action(a))
+            row = idx // 3
+            col = idx % 3
+            quick_buttons_layout.addWidget(btn, row, col)
+
+        quick_launch_layout.addLayout(quick_buttons_layout)
+        self.root_layout.addWidget(self.quick_launch_frame)
+
+        self.emager_section = CollapsibleSection("Run EMaGer Command", expanded=True, collapsed_height=36)
+        emager_layout = QGridLayout()
+        emager_layout.setContentsMargins(0, 0, 0, 0)
+        emager_layout.setHorizontalSpacing(8)
+        emager_layout.setVerticalSpacing(8)
 
         emager_layout.addWidget(QLabel("Command:"), 0, 0)
         self.command_combo = QComboBox()
@@ -206,10 +419,11 @@ class CommandLauncherPyQt(QMainWindow):
         self.args_input.setPlaceholderText("--config config_examples/base_config_example.py")
         emager_layout.addWidget(self.args_input, 1, 1)
 
-        root_layout.addWidget(emager_group)
+        self.emager_section.content_layout.addLayout(emager_layout)
+        self.root_layout.addWidget(self.emager_section)
 
-        config_group = QGroupBox("Config Editor")
-        config_root_layout = QVBoxLayout(config_group)
+        self.config_section = CollapsibleSection("Config Editor", expanded=True, collapsed_height=36)
+        config_root_layout = self.config_section.content_layout
 
         preload_layout = QHBoxLayout()
         preload_layout.addWidget(QLabel("Preload config file:"))
@@ -229,14 +443,16 @@ class CommandLauncherPyQt(QMainWindow):
         self.config_name_input = QLineEdit()
         self.config_name_input.setPlaceholderText("gui_runtime_config")
         self.config_name_input.setText("gui_runtime_config")
+        save_layout.addWidget(self.config_name_input)
+
         save_layout.addWidget(QLabel("Runtime save format:"))
         self.config_format_combo = QComboBox()
         self.config_format_combo.addItems(["yaml", "json"])
         self.config_format_combo.setCurrentText("yaml")
-        self.last_config_label = QLabel("Runtime config: not saved yet")
-        save_layout.addWidget(self.config_name_input)
         save_layout.addWidget(self.config_format_combo)
+
         save_layout.addStretch(1)
+        self.last_config_label = QLabel("Runtime config: not saved yet")
         save_layout.addWidget(self.last_config_label)
         config_root_layout.addLayout(save_layout)
 
@@ -246,44 +462,61 @@ class CommandLauncherPyQt(QMainWindow):
         self.config_grid = QGridLayout(self.config_scroll_content)
         self.config_grid.setColumnStretch(1, 1)
         self.config_scroll.setWidget(self.config_scroll_content)
+        self.config_scroll.setMinimumHeight(180)
         config_root_layout.addWidget(self.config_scroll)
 
-        root_layout.addWidget(config_group)
+        self.root_layout.addWidget(self.config_section)
 
-        custom_group = QGroupBox("Run Custom Shell Command")
-        custom_layout = QHBoxLayout(custom_group)
+        self.custom_section = CollapsibleSection("Run Custom Shell Command", expanded=True, collapsed_height=36)
+        custom_layout = QHBoxLayout()
+        custom_layout.setContentsMargins(0, 0, 0, 0)
         self.custom_input = QLineEdit()
         self.custom_input.setPlaceholderText("Example: python -m tests.run_all_tests")
         self.run_custom_button = QPushButton("Run Custom")
         self.run_custom_button.clicked.connect(self._run_custom_command)
         custom_layout.addWidget(self.custom_input)
         custom_layout.addWidget(self.run_custom_button)
-        root_layout.addWidget(custom_group)
+        self.custom_section.content_layout.addLayout(custom_layout)
 
-        controls_layout = QHBoxLayout()
+        self.root_layout.addWidget(self.custom_section)
+
+        self.controls_frame = QWidget(self)
+        self.controls_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.controls_frame.setMinimumHeight(38)
+        self.controls_frame.setMaximumHeight(38)
+
+        controls_layout = QHBoxLayout(self.controls_frame)
+        controls_layout.setContentsMargins(0, 2, 0, 2)
+        controls_layout.setSpacing(8)
+
         self.stop_button = QPushButton("Stop Running")
-        self.stop_button.clicked.connect(self._stop_process)
         self.clear_button = QPushButton("Clear Output")
-        self.clear_button.clicked.connect(self._clear_output)
-        self.toggle_output_button = QPushButton("Hide Output")
-        self.toggle_output_button.clicked.connect(self._toggle_output_visibility)
         self.status_label = QLabel("Idle")
+
+        self.stop_button.clicked.connect(self._stop_process)
+        self.clear_button.clicked.connect(self._clear_output)
 
         controls_layout.addWidget(self.stop_button)
         controls_layout.addWidget(self.clear_button)
-        controls_layout.addWidget(self.toggle_output_button)
         controls_layout.addStretch(1)
         controls_layout.addWidget(self.status_label)
-        root_layout.addLayout(controls_layout)
 
-        self.output_group = QGroupBox("Output")
-        output_layout = QVBoxLayout(self.output_group)
+        self.root_layout.addWidget(self.controls_frame)
+
+        self.output_section = CollapsibleSection("Output", expanded=True, collapsed_height=28)
+        self.output_section.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+
+        output_layout = self.output_section.content_layout
+        output_layout.setContentsMargins(0, 0, 0, 0)
+        output_layout.setSpacing(4)
+
         self.output = QTextEdit()
         self.output.setReadOnly(True)
         self.output.setFont(QFont("Consolas", 10))
-        self.output.setMinimumHeight(240)
+        self.output.setMinimumHeight(180)
         output_layout.addWidget(self.output)
-        root_layout.addWidget(self.output_group, stretch=2)
+
+        self.root_layout.addWidget(self.output_section, stretch=1)
 
         self.setCentralWidget(central)
         self._build_config_editor_fields()
@@ -300,7 +533,7 @@ class CommandLauncherPyQt(QMainWindow):
             self.config_inputs[field_name] = input_box
 
     def _load_initial_config(self):
-        default_path = Path("config_examples") / "base_config_example.py"
+        default_path = ROOT_EMAGERLIB / "config_examples" / "base_config_example.py"
         self.config_path_input.setText(str(default_path))
         if default_path.exists():
             self._load_config_into_editor(default_path)
@@ -451,6 +684,35 @@ class CommandLauncherPyQt(QMainWindow):
     def _is_running(self):
         return self.process.state() != QProcess.ProcessState.NotRunning
 
+    def _build_command_for_action(self, action: dict):
+        extra_args = self._remove_config_args(action.get("extra_args", ""))
+
+        if action["kind"] == "emager":
+            command = build_emager_command(action["target"], extra_args)
+        elif action["kind"] == "script":
+            script_path = Path(action["target"])
+            if not script_path.exists():
+                raise FileNotFoundError(f"Script not found: {script_path}")
+            command = build_script_command(script_path, extra_args)
+        else:
+            raise ValueError(f"Unsupported action kind: {action['kind']}")
+
+        if action.get("use_config", False):
+            saved_config_path = self._save_runtime_config()
+            command.extend(["--config", str(saved_config_path)])
+            self._append_output(f"Using runtime config: {saved_config_path}\n")
+
+        return command
+
+    def _run_quick_action(self, action: dict):
+        try:
+            command = self._build_command_for_action(action)
+        except Exception as exc:
+            self._append_output(f"Failed to build command for '{action['label']}': {exc}\n")
+            return
+
+        self._start_process(command, shell=False)
+
     def _run_selected_command(self):
         command_name = self.command_combo.currentText().strip()
         if not command_name:
@@ -481,7 +743,7 @@ class CommandLauncherPyQt(QMainWindow):
             self._append_output("A process is already running. Stop it before starting another one.\n")
             return
 
-        self._append_output("\n$ {}\n".format(command_line))
+        self._append_output(f"\n$ {command_line}\n")
         self.status_label.setText("Running")
 
         if shell:
@@ -507,7 +769,7 @@ class CommandLauncherPyQt(QMainWindow):
             self._append_output(stderr_data)
 
     def _on_process_finished(self, exit_code, _exit_status):
-        self._append_output("\nProcess finished with exit code {}.\n".format(exit_code))
+        self._append_output(f"\nProcess finished with exit code {exit_code}.\n")
         self.status_label.setText("Idle")
 
     def _stop_process(self):
@@ -520,14 +782,6 @@ class CommandLauncherPyQt(QMainWindow):
 
     def _clear_output(self):
         self.output.clear()
-
-    def _toggle_output_visibility(self):
-        is_visible = self.output_group.isVisible()
-        self.output_group.setVisible(not is_visible)
-        if is_visible:
-            self.toggle_output_button.setText("Show Output")
-        else:
-            self.toggle_output_button.setText("Hide Output")
 
 
 def main():

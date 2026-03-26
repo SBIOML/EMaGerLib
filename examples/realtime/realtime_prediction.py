@@ -8,7 +8,7 @@ from multiprocessing.connection import Connection
 from pathlib import Path
 import logging
 import sys
-
+import os
 from libemg.data_handler import OnlineDataHandler
 from libemg.emg_predictor import EMGClassifier, OnlineEMGClassifier
 from libemg.feature_extractor import FeatureExtractor
@@ -179,7 +179,7 @@ def predicator(use_gui:bool=True, ctrl_shared:ClassifierController | None = None
 
 
     # Create GUI
-    files = gjutils.get_images_list(cfg.MEDIA_PATH)
+    files = gjutils.get_images_list(cfg.MEDIA_PATH + os.sep)
     logger.debug(f"Files: {files}")
     logger.info("Creating GUI...")
     gui = RealTimeGestureUi(files)

@@ -2,6 +2,7 @@ from emagerlib.control.constants import *
 import emagerlib.utils.gestures_json as gj
 from libemg.gui import GUI
 import logging
+import os
 from pathlib import Path
 from typing import Tuple, List, Optional
 
@@ -40,7 +41,7 @@ def setup_gesture_decoder(cfg):
         logger.info(f"Gestures loaded from {_MEDIA_PATH}")
     except FileNotFoundError:
         logger.info(f"Gestures not found, downloading to {_MEDIA_PATH}...")
-        GUI.download_gestures(_MEDIA_PATH)
+        GUI.download_gestures(os.path.join(_MEDIA_PATH, ""))
         _gestures_dict = gj.get_gestures_dict(_MEDIA_PATH)
         logger.info(f"Gestures downloaded successfully to {_MEDIA_PATH}")
     

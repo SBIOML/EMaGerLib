@@ -38,6 +38,7 @@ def main(argv=None):
     from libemg.gui import GUI
 
     _, cfg = setup_runtime(argv)
+    media_folder = os.path.join(str(cfg.MEDIA_PATH), "")
 
     # Create data handler and streamer
     p, smi = get_emager_streamer(cfg.EMAGER_VERSION)
@@ -47,7 +48,7 @@ def main(argv=None):
 
     gui_args = {
         "online_data_handler": odh,
-        "media_folder": cfg.MEDIA_PATH,
+        "media_folder": media_folder,
         "data_folder": cfg.DATAFOLDER,
         "num_reps": cfg.NUM_REPS,
         "rep_time": cfg.REP_TIME,
@@ -56,7 +57,7 @@ def main(argv=None):
     }
     
     gui = GUI(odh, args=gui_args, debug=False, width=900, height=800)
-    gui.download_gestures(cfg.CLASSES, cfg.MEDIA_PATH, download_gifs=False)
+    gui.download_gestures(cfg.CLASSES, media_folder, download_gifs=False)
 
     dataset_path = os.path.abspath(str(cfg.DATAFOLDER))
 

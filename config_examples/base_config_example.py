@@ -5,41 +5,39 @@ BASE_PATH = ROOT_EMAGERLIB / "Datasets"
 SESSION = "finetune_mars_25_1"
 MEDIA_PATH = ROOT_EMAGERLIB / "media-test"
 MODEL_NAME = None # Note: MODEL_NAME will find the last model if set to None but you can hardcode it 
-# or put your own function in the config.py file
-# import emagerlib.utils.find_models as futils
-# MODEL_NAME = futils.find_last_model(str(BASE_PATH), SESSION)
 # MODEL_NAME = "libemg_torch_cnn_D0_974_25-10-20_15h03.pth"
+PRETRAINED_MODEL_PATH = ROOT_EMAGERLIB / "models" / "Felix_5sessions.pth"
 
 # ===== Gesture/classes configuration ===== #
 # hand_close, hand_open, index extension, ok, thumbs up
 CLASSES = [1, 2, 3, 14, 18, 19, 30]
-NUM_CLASSES = len(CLASSES)
 NUM_REPS = 3
 REP_TIME = 3
 REST_TIME = 1
 
-# ===== Data acquisition and model parameters ===== #
-MAJORITY_VOTE = 30
-WINDOW_SIZE = 200
-WINDOW_INCREMENT = 10
-EPOCH = 10
+# ===== Data acquisition ===== #
+EMAGER_VERSION = "v3.0"  # EMaGer device version ("v1.0", "v1.1", or "v3.0")
 SAMPLING = 2000
-TRAIN_REPS = [0,1,2]
-TEST_REPS = [1]
 FILTER = False
 VIRTUAL = False
 PORT = None
-EMAGER_VERSION = "v3.0"  # EMaGer device version ("v1.0", "v1.1", or "v3.0")
+
+# ===== Training parameters ===== #
+TRAIN_REPS = [0,1,2]
+TEST_REPS = [1]
+WINDOW_SIZE = 200
+WINDOW_INCREMENT = 10
+EPOCH = 10
+FREEZE_FIRST_N_PARAMS = 16
+USE_PRETRAINED = True
 
 # ===== Controller and predictor settings ===== #
 USE_GUI = True
-
+MAJORITY_VOTE = 30
 # Thread speed control (2 independent variables):
 PREDICTOR_DELAY = 0.01          # Thread 1: Predictor speed (seconds between prediction updates)
 CONTROLLER_POLL_RATE = 0.001    # Thread 2: Controller speed (seconds between sending checks)
-
 PREDICTOR_TIMEOUT_DELAY = 0.05  # Min time before processing same prediction again
-
 # Smoothing configuration:
 SMOOTH_WINDOW = 1  # Set to 1 to disable smoothing (always use latest value)
 SMOOTH_METHOD = 'mode'  # 'mode' recommended for categorical gestures; 'mean' for numeric smoothing

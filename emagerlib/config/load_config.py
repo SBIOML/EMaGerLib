@@ -4,6 +4,7 @@ import os
 import yaml
 import types
 from pathlib import Path
+from typing import Optional, Union
 from .core_config import CoreConfig
 from dataclasses import fields
 from emagerlib import ROOT_EMAGERLIB
@@ -58,17 +59,10 @@ def _build_config(data: dict, path: Path) -> CoreConfig:
 
     config_dir = path.parent
 
-    # Required path field
-    if "BASE_PATH" in core:
-        core["BASE_PATH"] = _resolve_path(core["BASE_PATH"], config_dir)
-
-    # Path-like string fields in CoreConfig
-    if "MEDIA_PATH" in core and core["MEDIA_PATH"] is not None:
-        core["MEDIA_PATH"] = str(_resolve_path(core["MEDIA_PATH"], config_dir))
-
-    for key in ("LOG_FILE_PATH", "SAVE_CONFIG_PATH"):
-        if key in core and core[key]:
-            core[key] = str(_resolve_path(core[key], config_dir))
+    # Normalize all path-like fields to pathlib.Path
+    for key in ("BASE_PATH", "MEDIA_PATH", "PRETRAINED_MODEL_PATH", "LOG_FILE_PATH", "SAVE_CONFIG_PATH"):
+        if key in core and core[key] is not None:
+            core[key] = _resolve_path(core[key], config_dir)
 
     cfg = CoreConfig(**core)
     cfg.EXTRA = extra
@@ -79,7 +73,7 @@ def _build_config(data: dict, path: Path) -> CoreConfig:
     return cfg
 
 
-def load_config(path: str | Path) -> CoreConfig:
+def load_config(path: Union[str, Path]) -> CoreConfig:
     """Load configuration from Python, JSON, or YAML file.
     File type is automatically detected based on file extension:
     - .py: Python config file

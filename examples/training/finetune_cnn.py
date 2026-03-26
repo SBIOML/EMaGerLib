@@ -14,21 +14,6 @@ DEFAULT_CONFIG = ROOT_EMAGERLIB / "examples" / "training" / "config_train-model.
 logger = logging.getLogger(__name__)
 
 
-# ============================================================
-# FINE-TUNING SETTINGS
-# ============================================================
-# Put your pretrained .pth path here
-PRETRAINED_MODEL_PATH = ROOT_EMAGERLIB / "models" / "Felix_5sessions.pth"
-print(PRETRAINED_MODEL_PATH)
-# Number of parameter tensors to freeze from the beginning
-# Start small if unsure, e.g. 2, 4, 6
-FREEZE_FIRST_N_PARAMS = 16
-
-# Set to True if you want to load a pretrained model and fine-tune it
-# Set to False if you want to train from scratch
-USE_PRETRAINED = True
-
-
 def parse_args(argv=None):
     parser = create_parser(
         description="Train / fine-tune CNN model on EMG data",
@@ -150,7 +135,6 @@ def main(argv=None):
     import emagerlib.models.models as etm
 
     _, cfg = setup_runtime(argv)
-    pretrained_model_path = Path(cfg.SAVE_PATH) / "your_pretrained_model.pth"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Using device: {device}")
@@ -203,11 +187,11 @@ def main(argv=None):
     classifier = etm.EmagerCNN((4, 16), cfg.NUM_CLASSES, -1)
 
     # Load pretrained weights if requested
-    if USE_PRETRAINED:
-        load_pretrained_weights(classifier, pretrained_model_path, device=device)
+    if cfg.USE_PRETRAINED:
+        load_pretrained_weights(classifier, cfg.PRETRAINED_MODEL_PATH, device=device)
 
         # Freeze first few layers/parameter tensors
-        freeze_first_n_parameters(classifier, FREEZE_FIRST_N_PARAMS)
+        freeze_first_n_parameters(classifier, cfg.FREEZE_FIRST_N_PARAMS)
         print_trainable_summary(classifier)
     else:
         logger.info("Training from scratch (no pretrained weights loaded).")

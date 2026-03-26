@@ -211,5 +211,30 @@ class TestConfigSystem(unittest.TestCase):
 
         print("✓ YAML config paths are independent of CWD")
 
+    def test_10_path_fields_are_normalized_to_path_objects(self):
+        """Path-like config fields should be loaded as pathlib.Path objects."""
+        cfg_py = load_config(self.config_dir / "base_config_example.py")
+        cfg_yaml = load_config(self.config_dir / "base_config_example.yaml")
+
+        for cfg in (cfg_py, cfg_yaml):
+            self.assertIsInstance(cfg.BASE_PATH, Path)
+            self.assertIsInstance(cfg.MEDIA_PATH, Path)
+            self.assertIsInstance(cfg.PRETRAINED_MODEL_PATH, Path)
+
+        print("✓ Path-like fields are normalized to Path objects")
+
+    def test_11_media_path_join_does_not_break_separator(self):
+        """Regression test for broken joins like 'media-testgesture_list.json'."""
+        cfg_py = load_config(self.config_dir / "base_config_example.py")
+        cfg_yaml = load_config(self.config_dir / "base_config_example.yaml")
+
+        for cfg in (cfg_py, cfg_yaml):
+            gestures_file = cfg.MEDIA_PATH / "gesture_list.json"
+            self.assertEqual(gestures_file.parent, cfg.MEDIA_PATH)
+            self.assertEqual(gestures_file.name, "gesture_list.json")
+            self.assertNotIn("media-testgesture_list.json", str(gestures_file))
+
+        print("✓ MEDIA_PATH joins keep proper separators")
+
 if __name__ == '__main__':
     unittest.main()

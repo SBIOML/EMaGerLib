@@ -105,17 +105,72 @@ QUICK_ACTIONS = [
 ]
 
 
+CONFIG_EDITOR_SECTIONS = (
+    (
+        "Paths",
+        ["BASE_PATH", "SESSION", "MEDIA_PATH", "MODEL_NAME", "PRETRAINED_MODEL_PATH"],
+    ),
+    (
+        "Gesture/classes configuration",
+        ["CLASSES", "NUM_REPS", "REP_TIME", "REST_TIME"],
+    ),
+    (
+        "Data acquisition",
+        ["EMAGER_VERSION", "SAMPLING", "FILTER", "VIRTUAL", "PORT"],
+    ),
+    (
+        "Training parameters",
+        [
+            "TRAIN_REPS",
+            "TEST_REPS",
+            "WINDOW_SIZE",
+            "WINDOW_INCREMENT",
+            "EPOCH",
+            "FREEZE_FIRST_N_PARAMS",
+            "USE_PRETRAINED",
+        ],
+    ),
+    (
+        "Controller and predictor settings",
+        [
+            "USE_GUI",
+            "MAJORITY_VOTE",
+            "PREDICTOR_DELAY",
+            "CONTROLLER_POLL_RATE",
+            "PREDICTOR_TIMEOUT_DELAY",
+            "SMOOTH_WINDOW",
+            "SMOOTH_METHOD",
+        ],
+    ),
+    (
+        "Logging configuration",
+        ["LOG_LEVEL", "LOG_TO_FILE", "LOG_FILE_PATH", "LOG_FILE_NAME"],
+    ),
+    (
+        "Config saving defaults",
+        ["SAVE_CONFIG_PATH", "SAVE_CONFIG_NAME", "SAVE_CONFIG_FORMAT"],
+    ),
+)
+
+
 def get_available_emager_commands():
     """Return available emager commands excluding the GUI launcher itself."""
     from examples.main import COMMANDS
     return sorted(command for command in COMMANDS if command != "gui")
 
 
+def split_arguments(extra_args=""):
+    """Split CLI-like argument string into tokens, preserving platform behavior."""
+    if not extra_args or not extra_args.strip():
+        return []
+    return shlex.split(extra_args, posix=(os.name != "nt"))
+
+
 def build_emager_command(command_name, extra_args=""):
     """Build a command list to execute an emager subcommand via Python module entry."""
     command = [sys.executable, "-m", "examples.main", command_name]
     if extra_args and extra_args.strip():
-        command.extend(shlex.split(extra_args, posix=(os.name != "nt")))
+        command.extend(split_arguments(extra_args))
     return command
 
 
@@ -123,7 +178,7 @@ def build_script_command(script_path: Path, extra_args=""):
     """Build a command list to execute a Python script directly."""
     command = [sys.executable, str(script_path)]
     if extra_args and extra_args.strip():
-        command.extend(shlex.split(extra_args, posix=(os.name != "nt")))
+        command.extend(split_arguments(extra_args))
     return command
 
 
@@ -145,6 +200,12 @@ QLabel#sectionTitle {
     color: #005a9e;
     font-weight: 600;
     font-size: 10pt;
+}
+QLabel#configSectionTitle {
+    color: #005a9e;
+    font-weight: 700;
+    margin-top: 8px;
+    margin-bottom: 2px;
 }
 QPushButton {
     background-color: #e9edf2;
@@ -214,6 +275,12 @@ QLabel#sectionTitle {
     color: #8ecbff;
     font-weight: 600;
     font-size: 10pt;
+}
+QLabel#configSectionTitle {
+    color: #8ecbff;
+    font-weight: 700;
+    margin-top: 8px;
+    margin-bottom: 2px;
 }
 QPushButton {
     background-color: #343942;
@@ -306,6 +373,13 @@ class CollapsibleSection(QFrame):
 
         self.set_expanded(expanded)
 
+    def _effective_collapsed_height(self) -> int:
+        """Return a collapsed height that always fits the header and frame margins."""
+        header_height = self.header.sizeHint().height()
+        margins = self._main_layout.contentsMargins()
+        min_height = header_height + margins.top() + margins.bottom() + 2
+        return max(self._collapsed_height, min_height)
+
     def set_expanded(self, expanded: bool):
         self._expanded = expanded
         self.toggle_button.setText("▾" if expanded else "▸")
@@ -323,8 +397,9 @@ class CollapsibleSection(QFrame):
             self.content.setMinimumHeight(0)
             self.content.setMaximumHeight(0)
             self.content.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-            self.setMinimumHeight(self._collapsed_height)
-            self.setMaximumHeight(self._collapsed_height)
+            collapsed_height = self._effective_collapsed_height()
+            self.setMinimumHeight(collapsed_height)
+            self.setMaximumHeight(collapsed_height)
             self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         self.updateGeometry()
@@ -399,7 +474,7 @@ class CommandLauncherPyQt(QMainWindow):
         quick_launch_layout.addLayout(quick_buttons_layout)
         self.root_layout.addWidget(self.quick_launch_frame)
 
-        self.emager_section = CollapsibleSection("Run EMaGer Command", expanded=True, collapsed_height=36)
+        self.emager_section = CollapsibleSection("Run EMaGer Command", expanded=False, collapsed_height=36)
         emager_layout = QGridLayout()
         emager_layout.setContentsMargins(0, 0, 0, 0)
         emager_layout.setHorizontalSpacing(8)
@@ -420,6 +495,19 @@ class CommandLauncherPyQt(QMainWindow):
         emager_layout.addWidget(self.args_input, 1, 1)
 
         self.emager_section.content_layout.addLayout(emager_layout)
+
+        self.custom_section = CollapsibleSection("Run Custom Shell Command", expanded=False, collapsed_height=28)
+        custom_layout = QHBoxLayout()
+        custom_layout.setContentsMargins(0, 0, 0, 0)
+        self.custom_input = QLineEdit()
+        self.custom_input.setPlaceholderText("Example: python -m tests.run_all_tests")
+        self.run_custom_button = QPushButton("Run Custom")
+        self.run_custom_button.clicked.connect(self._run_custom_command)
+        custom_layout.addWidget(self.custom_input)
+        custom_layout.addWidget(self.run_custom_button)
+        self.custom_section.content_layout.addLayout(custom_layout)
+        self.emager_section.content_layout.addWidget(self.custom_section)
+
         self.root_layout.addWidget(self.emager_section)
 
         self.config_section = CollapsibleSection("Config Editor", expanded=True, collapsed_height=36)
@@ -467,19 +555,6 @@ class CommandLauncherPyQt(QMainWindow):
 
         self.root_layout.addWidget(self.config_section)
 
-        self.custom_section = CollapsibleSection("Run Custom Shell Command", expanded=True, collapsed_height=36)
-        custom_layout = QHBoxLayout()
-        custom_layout.setContentsMargins(0, 0, 0, 0)
-        self.custom_input = QLineEdit()
-        self.custom_input.setPlaceholderText("Example: python -m tests.run_all_tests")
-        self.run_custom_button = QPushButton("Run Custom")
-        self.run_custom_button.clicked.connect(self._run_custom_command)
-        custom_layout.addWidget(self.custom_input)
-        custom_layout.addWidget(self.run_custom_button)
-        self.custom_section.content_layout.addLayout(custom_layout)
-
-        self.root_layout.addWidget(self.custom_section)
-
         self.controls_frame = QWidget(self)
         self.controls_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.controls_frame.setMinimumHeight(38)
@@ -524,13 +599,47 @@ class CommandLauncherPyQt(QMainWindow):
         self._apply_theme(self.current_theme)
 
     def _build_config_editor_fields(self):
-        for row, field_name in enumerate(self.config_field_names):
-            label = QLabel(field_name)
-            input_box = QLineEdit()
-            input_box.setPlaceholderText("None")
-            self.config_grid.addWidget(label, row, 0)
-            self.config_grid.addWidget(input_box, row, 1)
-            self.config_inputs[field_name] = input_box
+        self.config_inputs = {}
+        section_fields = set()
+        row = 0
+
+        for section_title, section_keys in CONFIG_EDITOR_SECTIONS:
+            fields_in_section = [key for key in section_keys if key in self.config_field_names]
+            if not fields_in_section:
+                continue
+
+            section_label = QLabel(section_title)
+            section_label.setObjectName("configSectionTitle")
+            self.config_grid.addWidget(section_label, row, 0, 1, 2)
+            row += 1
+
+            for field_name in fields_in_section:
+                label = QLabel(field_name)
+                input_box = QLineEdit()
+                input_box.setPlaceholderText("None")
+                self.config_grid.addWidget(label, row, 0)
+                self.config_grid.addWidget(input_box, row, 1)
+                self.config_inputs[field_name] = input_box
+                section_fields.add(field_name)
+                row += 1
+
+            row += 1
+
+        remaining_fields = [name for name in self.config_field_names if name not in section_fields]
+        if remaining_fields:
+            section_label = QLabel("Other")
+            section_label.setObjectName("configSectionTitle")
+            self.config_grid.addWidget(section_label, row, 0, 1, 2)
+            row += 1
+
+            for field_name in remaining_fields:
+                label = QLabel(field_name)
+                input_box = QLineEdit()
+                input_box.setPlaceholderText("None")
+                self.config_grid.addWidget(label, row, 0)
+                self.config_grid.addWidget(input_box, row, 1)
+                self.config_inputs[field_name] = input_box
+                row += 1
 
     def _load_initial_config(self):
         default_path = ROOT_EMAGERLIB / "config_examples" / "base_config_example.py"

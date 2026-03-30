@@ -14,7 +14,7 @@ class TestConstants(unittest.TestCase):
         
         self.assertEqual(len(gesture_values), len(set(gesture_values)),
                         "All gesture values should be unique")
-        print("✓ All Gesture values are unique")
+        print("All Gesture values are unique")
 
     def test_02_pin_servo_access(self):
         """Test PIN_SERVO can be accessed by finger index"""
@@ -24,7 +24,7 @@ class TestConstants(unittest.TestCase):
         
         self.assertEqual(thumb_pin, 13)
         self.assertEqual(index_pin, 14)
-        print("✓ PIN_SERVO accessible by Finger constants")
+        print("PIN_SERVO accessible by Finger constants")
 
 
 if __name__ == '__main__':

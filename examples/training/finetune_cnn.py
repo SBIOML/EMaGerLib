@@ -172,6 +172,7 @@ def main(argv=None):
         ),
         batch_size=64,
         shuffle=True,
+        drop_last=True
     )
 
     test_dl = DataLoader(
@@ -181,6 +182,7 @@ def main(argv=None):
         ),
         batch_size=256,
         shuffle=False,
+        drop_last=True
     )
 
     # Create model

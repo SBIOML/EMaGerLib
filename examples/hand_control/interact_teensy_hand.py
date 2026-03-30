@@ -68,7 +68,7 @@ def main(argv=None):
             response_callback=lambda line: print(f"[Teensy] {line}")
         )
         
-        logger.info("✓ Connected successfully!\n")
+        logger.info("Connected successfully!\n")
         
         # Start the hand thread
         logger.info("Starting hand thread...")

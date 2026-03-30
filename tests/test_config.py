@@ -35,7 +35,7 @@ class TestConfigSystem(unittest.TestCase):
         self.assertIsNotNone(cfg, "Config should not be None")
         self.assertTrue(hasattr(cfg, 'SESSION'), "Config should have SESSION attribute")
         self.assertTrue(hasattr(cfg, 'SAMPLING'), "Config should have SAMPLING attribute")
-        print(f"✓ Python config loaded successfully from {config_file.name}")
+        print(f"Python config loaded successfully from {config_file.name}")
 
     def test_02_save_and_load_json(self):
         """Test round-trip: Python -> JSON -> Load"""
@@ -55,13 +55,13 @@ class TestConfigSystem(unittest.TestCase):
         saved_file = save_config(cfg_original, self.test_dir, name="test_config")
         self.assertTrue(saved_file.exists(), "Saved file should exist")
         self.assertTrue(saved_file.suffix == ".json", "Default format should be JSON")
-        print(f"✓ Config saved to {saved_file.name}")
+        print(f"Config saved to {saved_file.name}")
         
         try:
             # Load from JSON
             cfg_loaded = load_config(saved_file)
             self.assertIsNotNone(cfg_loaded, "Loaded config should not be None")
-            print(f"✓ Config loaded from {saved_file.name}")
+            print(f"Config loaded from {saved_file.name}")
             
             # Verify round-trip worked (data is preserved)
             for key, original_value in original_data.items():
@@ -69,7 +69,7 @@ class TestConfigSystem(unittest.TestCase):
                 self.assertEqual(loaded_value, original_value, 
                                f"Round-trip failed: {key} changed from {original_value} to {loaded_value}")
             
-            print("✓ Round-trip successful: all data preserved")
+            print("Round-trip successful: all data preserved")
             
         finally:
             # Cleanup
@@ -86,7 +86,7 @@ class TestConfigSystem(unittest.TestCase):
         self.assertIsNotNone(cfg, "Config should not be None")
         self.assertTrue(hasattr(cfg, 'SESSION'), "Config should have SESSION attribute")
         self.assertTrue(hasattr(cfg, 'SAMPLING'), "Config should have SAMPLING attribute")
-        print(f"✓ YAML config loaded successfully from {config_file.name}")
+        print(f"YAML config loaded successfully from {config_file.name}")
 
     def test_04_extra_fields(self):
         """Test that custom fields can be added and accessed"""
@@ -101,7 +101,7 @@ class TestConfigSystem(unittest.TestCase):
         self.assertEqual(cfg.CUSTOM_FIELD, "test_value")
         self.assertEqual(cfg.CUSTOM_NUMBER, 42)
         self.assertEqual(cfg.get("CUSTOM_FIELD"), "test_value")
-        print("✓ Custom fields can be added and accessed")
+        print("Custom fields can be added and accessed")
 
     def test_05_save_and_load_yaml(self):
         """Test saving config as YAML and loading it back"""
@@ -128,7 +128,7 @@ class TestConfigSystem(unittest.TestCase):
         self.assertEqual(cfg_loaded.SESSION, cfg_original.SESSION)
         self.assertEqual(cfg_loaded.SAMPLING, cfg_original.SAMPLING)
         self.assertEqual(cfg_loaded.CLASSES, cfg_original.CLASSES)
-        print("✓ YAML save/load round-trip successful")
+        print("YAML save/load round-trip successful")
 
     def test_06_save_creates_directory(self):
         """Test that save creates directories if they don't exist"""
@@ -143,7 +143,7 @@ class TestConfigSystem(unittest.TestCase):
         
         self.assertTrue(save_dir.exists())
         self.assertTrue(saved_file.exists())
-        print("✓ Save creates nested directories")
+        print("Save creates nested directories")
 
     def test_07_save_with_timestamp(self):
         """Test that saved files include timestamp"""
@@ -161,7 +161,7 @@ class TestConfigSystem(unittest.TestCase):
         # Should have at least two parts: name and timestamp
         parts = filename.split("_")
         self.assertGreaterEqual(len(parts), 2)
-        print("✓ Saved files include timestamp")
+        print("Saved files include timestamp")
 
     def test_08_python_config_independent_of_cwd(self):
         """Test Python config path resolution is stable across different CWDs."""
@@ -185,7 +185,7 @@ class TestConfigSystem(unittest.TestCase):
         finally:
             os.chdir(original_cwd)
 
-        print("✓ Python config paths are independent of CWD")
+        print("Python config paths are independent of CWD")
 
     def test_09_yaml_config_independent_of_cwd(self):
         """Test YAML config path resolution is stable across different CWDs."""
@@ -209,7 +209,7 @@ class TestConfigSystem(unittest.TestCase):
         finally:
             os.chdir(original_cwd)
 
-        print("✓ YAML config paths are independent of CWD")
+        print("YAML config paths are independent of CWD")
 
     def test_10_path_fields_are_normalized_to_path_objects(self):
         """Path-like config fields should be loaded as pathlib.Path objects."""
@@ -221,7 +221,7 @@ class TestConfigSystem(unittest.TestCase):
             self.assertIsInstance(cfg.MEDIA_PATH, Path)
             self.assertIsInstance(cfg.PRETRAINED_MODEL_PATH, Path)
 
-        print("✓ Path-like fields are normalized to Path objects")
+        print("Path-like fields are normalized to Path objects")
 
     def test_11_media_path_join_does_not_break_separator(self):
         """Regression test for broken joins like 'media-testgesture_list.json'."""
@@ -234,7 +234,7 @@ class TestConfigSystem(unittest.TestCase):
             self.assertEqual(gestures_file.name, "gesture_list.json")
             self.assertNotIn("media-testgesture_list.json", str(gestures_file))
 
-        print("✓ MEDIA_PATH joins keep proper separators")
+        print("MEDIA_PATH joins keep proper separators")
 
 if __name__ == '__main__':
     unittest.main()

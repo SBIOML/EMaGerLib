@@ -17,7 +17,7 @@ class TestUtilityFunctions(unittest.TestCase):
         
         decimation = get_transform_decimation(half_transform)
         self.assertEqual(decimation, 2)
-        print("✓ get_transform_decimation works correctly")
+        print("get_transform_decimation works correctly")
 
     def test_02_print_packet_basic(self):
         """Test packet printing doesn't crash"""
@@ -31,7 +31,7 @@ class TestUtilityFunctions(unittest.TestCase):
             success = False
         
         self.assertTrue(success)
-        print("✓ print_packet handles basic packets")
+        print("print_packet handles basic packets")
 
     def test_03_print_packet_types(self):
         """Test packet printing with different input types"""
@@ -47,7 +47,7 @@ class TestUtilityFunctions(unittest.TestCase):
         packet_list = [0x01, 0x02, 0x03]
         print_packet(packet_list)
         
-        print("✓ print_packet handles multiple input types")
+        print("print_packet handles multiple input types")
 
 
 if __name__ == '__main__':

@@ -175,7 +175,7 @@ def main(argv=None):
 
         logger.info("Connecting to LibEMG shared memory...")
         ctrl = ClassifierController('predictions', cfg.NUM_CLASSES)
-        logger.info("✓ LibEMG shared memory connected")
+        logger.info("LibEMG shared memory connected")
 
         controller_thread = threading.Thread(
             target=run_controller_thread,
@@ -184,7 +184,7 @@ def main(argv=None):
             name="Controller"
         )
         controller_thread.start()
-        logger.info("✓ Controller thread started")
+        logger.info("Controller thread started")
 
         if cfg.USE_GUI:
             logger.info("GUI enabled: running predictor in main thread.")
@@ -200,7 +200,7 @@ def main(argv=None):
                 name="Predictor"
             )
             predictor_thread.start()
-            logger.info("✓ Predictor thread started")
+            logger.info("Predictor thread started")
 
             logger.info("")
             logger.info("System running. Press Ctrl+C to stop.")
@@ -221,16 +221,16 @@ def main(argv=None):
         if predictor_thread is not None and predictor_thread.is_alive():
             predictor_thread.join(timeout=3)
             if predictor_thread.is_alive():
-                logger.warning("⚠ Predictor thread did not stop cleanly")
+                logger.warning("Predictor thread did not stop cleanly")
             else:
-                logger.info("✓ Predictor thread stopped")
+                logger.info("Predictor thread stopped")
 
         if controller_thread is not None and controller_thread.is_alive():
             controller_thread.join(timeout=3)
             if controller_thread.is_alive():
-                logger.warning("⚠ Controller thread did not stop cleanly")
+                logger.warning("Controller thread did not stop cleanly")
             else:
-                logger.info("✓ Controller thread stopped")
+                logger.info("Controller thread stopped")
 
         logger.info("=" * 60)
         logger.info("Application exited")

@@ -52,7 +52,7 @@ class TestGesturesJson(unittest.TestCase):
         # Should find 3 images (.png and .jpg only, not .txt)
         self.assertEqual(len(images), 3)
         self.assertTrue(all(img.endswith(('.png', '.jpg')) for img in images))
-        print("✓ get_images_list returns only image files")
+        print("get_images_list returns only image files")
 
     def test_02_get_images_folder(self):
         """Test extracting folder from image list"""
@@ -60,19 +60,19 @@ class TestGesturesJson(unittest.TestCase):
         folder = get_images_folder(images)
         
         self.assertEqual(Path(folder), self.images_folder)
-        print("✓ get_images_folder extracts correct folder")
+        print("get_images_folder extracts correct folder")
 
     def test_03_get_images_folder_empty_list(self):
         """Test get_images_folder with empty list raises error"""
         with self.assertRaises(ValueError):
             get_images_folder([])
-        print("✓ get_images_folder raises ValueError for empty list")
+        print("get_images_folder raises ValueError for empty list")
 
     def test_04_get_images_folder_nonexistent_file(self):
         """Test get_images_folder with non-existent file raises error"""
         with self.assertRaises(FileNotFoundError):
             get_images_folder(["/nonexistent/path/image.png"])
-        print("✓ get_images_folder raises FileNotFoundError for missing files")
+        print("get_images_folder raises FileNotFoundError for missing files")
 
     def test_05_get_gestures_dict_from_folder(self):
         """Test loading gestures dictionary from folder"""
@@ -81,7 +81,7 @@ class TestGesturesJson(unittest.TestCase):
         self.assertIsNotNone(gestures)
         self.assertEqual(gestures["1"], "gesture_1")
         self.assertEqual(gestures["2"], "gesture_2")
-        print("✓ get_gestures_dict loads from folder correctly")
+        print("get_gestures_dict loads from folder correctly")
 
     def test_06_get_gestures_dict_from_image_list(self):
         """Test loading gestures dictionary from image list"""
@@ -90,13 +90,13 @@ class TestGesturesJson(unittest.TestCase):
         
         self.assertIsNotNone(gestures)
         self.assertEqual(len(gestures), 3)
-        print("✓ get_gestures_dict loads from image list correctly")
+        print("get_gestures_dict loads from image list correctly")
 
     def test_07_get_gestures_dict_nonexistent_folder(self):
         """Test get_gestures_dict with non-existent folder raises error"""
         with self.assertRaises(FileNotFoundError):
             get_gestures_dict("/nonexistent/folder")
-        print("✓ get_gestures_dict raises FileNotFoundError for missing folder")
+        print("get_gestures_dict raises FileNotFoundError for missing folder")
 
     def test_08_get_index_from_label(self):
         """Test finding image index from gesture label"""
@@ -105,7 +105,7 @@ class TestGesturesJson(unittest.TestCase):
         
         self.assertIsNotNone(index)
         self.assertTrue("gesture_1" in images[index])
-        print("✓ get_index_from_label finds correct index")
+        print("get_index_from_label finds correct index")
 
     def test_09_get_label_from_index(self):
         """Test finding gesture label from image index"""
@@ -121,7 +121,7 @@ class TestGesturesJson(unittest.TestCase):
         if index is not None:
             label = get_label_from_index(index, images, self.gestures_dict)
             self.assertEqual(label, 2)
-            print("✓ get_label_from_index finds correct label")
+            print("get_label_from_index finds correct label")
         else:
             self.fail("Could not find gesture_2 in images list")
 

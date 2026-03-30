@@ -122,7 +122,7 @@ def run_main_gesture_test(args, cfg):
         logger.info("Connecting to Teensy controller...")
         controller = PsyonicTeensyControl(port=args.port, baudrate=args.baudrate)
         controller.connect()
-        logger.info("✓ Connected successfully!")
+        logger.info("Connected successfully!")
         logger.info("")
         
         # Give some time for initialization
@@ -175,7 +175,7 @@ def run_main_gesture_test(args, cfg):
             logger.info("Disconnecting from Teensy...")
             try:
                 controller.disconnect()
-                logger.info("✓ Disconnected")
+                logger.info("Disconnected")
             except Exception as e:
                 logger.error(f"Error during disconnect: {e}")
         
@@ -249,7 +249,7 @@ def interactive_command_mode(args):
             response_callback=lambda line: print(f"[Teensy] {line}")
         )
         
-        logger.info("✓ Connected successfully!\n")
+        logger.info("Connected successfully!\n")
         
         # Start the hand thread
         logger.info("Starting hand thread...")

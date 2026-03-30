@@ -28,7 +28,7 @@ class TestFindModels(unittest.TestCase):
         models = find_models(str(self.base_path), "test_session")
         
         self.assertEqual(models, [])
-        print("✓ find_models returns empty list for empty directory")
+        print("find_models returns empty list for empty directory")
 
     def test_02_find_models_with_files(self):
         """Test finding models with .pth files"""
@@ -41,14 +41,14 @@ class TestFindModels(unittest.TestCase):
         
         self.assertEqual(len(models), 2)
         self.assertTrue(all(m.endswith('.pth') for m in models))
-        print("✓ find_models returns only .pth files")
+        print("find_models returns only .pth files")
 
     def test_03_find_models_nonexistent_session(self):
         """Test finding models in non-existent session"""
         models = find_models(str(self.base_path), "nonexistent_session")
         
         self.assertEqual(models, [])
-        print("✓ find_models handles non-existent sessions")
+        print("find_models handles non-existent sessions")
 
     def test_04_find_last_model_no_models(self):
         """Test finding last model when no models exist"""
@@ -58,7 +58,7 @@ class TestFindModels(unittest.TestCase):
         last_model = find_last_model(str(self.base_path), "empty_session")
         
         self.assertIsNone(last_model)
-        print("✓ find_last_model returns None when no models exist")
+        print("find_last_model returns None when no models exist")
 
     def test_05_find_last_model_ordering(self):
         """Test that find_last_model returns the most recent model"""
@@ -75,7 +75,7 @@ class TestFindModels(unittest.TestCase):
         self.assertIsNotNone(last_model)
         # Should return the newest one (03-01-25 = January 3rd)
         self.assertIn("03-01-25", last_model)
-        print("✓ find_last_model returns most recent model")
+        print("find_last_model returns most recent model")
 
 
 if __name__ == '__main__':

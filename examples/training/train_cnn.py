@@ -92,11 +92,13 @@ def main(argv=None):
         TensorDataset(torch.from_numpy(train_data.astype(np.float32)), torch.from_numpy(train_labels)),
         batch_size=64,
         shuffle=True,
+        drop_last=True
     )
     test_dl = DataLoader(
         TensorDataset(torch.from_numpy(test_data.astype(np.float32)), torch.from_numpy(test_labels)),
         batch_size=256,
         shuffle=False,
+        drop_last=True
     )
 
     # Fit and test the model

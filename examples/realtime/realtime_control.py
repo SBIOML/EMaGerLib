@@ -129,9 +129,9 @@ def run_controller_process(conn: Connection = None, cfg=None):
                 try:
                     comm_controller.send_gesture(gesture)
                     last_sent_gesture = gesture
-                    logger.info(f"✓ SENT gesture [{gesture}]")
+                    logger.info(f"SENT gesture [{gesture}]")
                 except Exception as e:
-                    logger.error(f"✗ Error sending gesture: {e}", exc_info=True)
+                    logger.error(f"Error sending gesture: {e}", exc_info=True)
             else:
                 logger.debug("Same gesture, skipping send")
 

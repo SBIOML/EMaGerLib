@@ -95,6 +95,9 @@ def run_controller_thread(ctrl, cfg, args):
 
         logger.info("Controller ready, waiting for predictions...")
         logger.info(f"Controller poll rate: {cfg.CONTROLLER_POLL_RATE}s")
+        
+        logger.info("Send init command to hand")
+        comm_controller.send_init_command()
 
         while not stop_event.is_set():
             predictions = ctrl.get_data(['predictions'])

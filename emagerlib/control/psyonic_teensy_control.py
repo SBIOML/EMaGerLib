@@ -233,6 +233,13 @@ class PsyonicTeensyControl(HandInterface):
     def _handle_response(self, line: str):
         """Handle responses from Teensy."""
         logger.debug(f"[Teensy] {line}")
+        
+    def send_init_command(self):
+        """Send an initialization command to the hand if supported."""
+        if not self.connected:
+            raise RuntimeError("Hand not initialized. Call connect() first.")
+        logger.info("Sending initialization command to hand...")
+        self.teensy._send_command("t 1")  # Start the hand thread
 
     def send_gesture(self, gesture: str):
         """

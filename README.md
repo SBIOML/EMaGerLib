@@ -93,25 +93,32 @@ source venv/bin/activate
 pip install -e .
 ```
 
-This installs the package with all dependencies and makes console commands available globally.
+This installs the package with all dependencies — including the [emager-v3 fork of libemg](https://github.com/Michiboi29/libemg-fork/tree/emager-v3), which is required because `emagerlib` uses `emagerv3_streamer` (only present in the fork). Console commands (`emager`, `emager-gui`, `emager-run-tests`) are made available globally.
 
-**Optional: Install with different libemg versions**
+**Optional: switch to a different libemg source**
+
+If you need the stable PyPI release or the bleeding-edge upstream `latest` branch instead of the fork, uninstall the current libemg first, then reinstall with an extra:
 
 ```bash
-# Install with latest libemg from main repository
+# Switch to the stable PyPI release of libemg
+pip uninstall libemg -y
+pip install -e ".[pypi]"
+
+# Switch to upstream libemg/libemg @ latest
+pip uninstall libemg -y
 pip install -e ".[latest]"
-
-# Install with libemg fork (emager-v3 branch)
-pip install -e ".[fork]"
-
-# Install with local libemg (edit path in pyproject.toml first)
-pip install -e ".[local]"
-
-# Install with development dependencies
-pip install -e ".[dev]"
 ```
 
-> **Note**: The package automatically installs the required `emager-v3` branch of the libemg fork, which provides support for both EMaGer v1 and v3 devices.
+> **Heads up**: switching away from the fork will break any code path that uses `emagerv3_streamer` (currently `emagerlib/utils/streamer_utils.py` and the v3 visualization examples).
+
+**Local libemg development**
+
+If you're developing libemg-fork locally and want changes to apply live:
+
+```bash
+pip uninstall libemg -y
+pip install -e /path/to/your/libemg-fork
+```
 
 ### Alternative: Manual Installation
 

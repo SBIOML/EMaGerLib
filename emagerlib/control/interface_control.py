@@ -47,6 +47,15 @@ class InterfaceControl:
         """Disconnect from the hand device."""
         if self.hand:
             self.hand.disconnect()
+            
+    def send_init_command(self):
+        """Send an initialization command to the hand if supported."""
+        if not self.hand:
+            raise RuntimeError("Hand not initialized. Call connect() first.")
+        if hasattr(self.hand, 'send_init_command'):
+            self.hand.send_init_command()
+        else:
+            raise NotImplementedError(f"send_init_command not implemented for {self.hand_type} hand")
 
     def send_gesture(self, gesture, direct=False):
         """Send a gesture to the hand."""

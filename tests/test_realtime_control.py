@@ -35,7 +35,7 @@ class TestSharedMemoryCommunication(unittest.TestCase):
         
         # Should be very fast (< 10µs on average)
         self.assertLess(avg_time, 10.0)
-        print(f"[PASS] Mock shared memory read: avg {avg_time:.2f}µs, max {max_time:.2f}µs")
+        print(f"[PASS] Mock shared memory read: avg {avg_time:.2f}us, max {max_time:.2f}us")
     
     def test_02_predictor_controller_latency(self):
         """Test end-to-end latency from prediction to read"""
@@ -128,7 +128,7 @@ class TestSmoothingPerformance(unittest.TestCase):
         
         # Should be fast (< 20µs average)
         self.assertLess(avg_time, 20.0)
-        print(f"[PASS] Mode smoothing: avg {avg_time:.2f}µs, max {max_time:.2f}µs per prediction")
+        print(f"[PASS] Mode smoothing: avg {avg_time:.2f}us, max {max_time:.2f}us per prediction")
     
     def test_02_mean_smoothing_speed(self):
         """Test mean smoothing execution speed"""
@@ -149,7 +149,7 @@ class TestSmoothingPerformance(unittest.TestCase):
         
         # Should be very fast (< 12µs average)
         self.assertLess(avg_time, 12.0)
-        print(f"[PASS] Mean smoothing: avg {avg_time:.2f}µs, max {max_time:.2f}µs per prediction")
+        print(f"[PASS] Mean smoothing: avg {avg_time:.2f}us, max {max_time:.2f}us per prediction")
     
     def test_03_last_smoothing_speed(self):
         """Test last-value smoothing (no smoothing) speed"""
@@ -169,7 +169,7 @@ class TestSmoothingPerformance(unittest.TestCase):
         
         # Should be extremely fast (< 1µs average)
         self.assertLess(avg_time, 1.0)
-        print(f"[PASS] Last smoothing: avg {avg_time:.2f}µs, max {max_time:.2f}µs per prediction")
+        print(f"[PASS] Last smoothing: avg {avg_time:.2f}us, max {max_time:.2f}us per prediction")
     
     def test_04_window_size_impact(self):
         """Test impact of window size on smoothing performance"""
@@ -201,7 +201,7 @@ class TestSmoothingPerformance(unittest.TestCase):
         for size, avg_time in results.items():
             self.assertLess(avg_time, 50.0)
         
-        print(f"[PASS] Window size impact: " + ", ".join([f"{k}={v:.1f}µs" for k, v in results.items()]))
+        print(f"[PASS] Window size impact: " + ", ".join([f"{k}={v:.1f}us" for k, v in results.items()]))
 
 
 class TestThreadLifecycle(unittest.TestCase):
@@ -341,7 +341,7 @@ class TestPerformanceMonitoring(unittest.TestCase):
         self.assertLess(avg_loop, 1.0)  # Should be sub-millisecond
         self.assertLess(avg_read, 10.0)  # Reads should be very fast
         
-        print(f"[PASS] Metrics collection: loop {avg_loop:.3f}ms, read {avg_read:.2f}µs")
+        print(f"[PASS] Metrics collection: loop {avg_loop:.3f}ms, read {avg_read:.2f}us")
     
     def test_03_throughput_measurement(self):
         """Test throughput measurement for prediction processing"""

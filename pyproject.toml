@@ -52,6 +52,7 @@ dev = [
 [project.scripts]
 # Main entry point
 emager = "examples.main:main"
+emager-gui = "examples.gui.command_launcher:main"
 
 # Tests
 emager-run-tests = "tests.run_all_tests:main"

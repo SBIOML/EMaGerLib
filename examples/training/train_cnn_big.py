@@ -5,11 +5,10 @@ from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
 
 # Default configuration path
-DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
+DEFAULT_CONFIG = Path(__file__).parent / "config_train-model.py"
 
 # Create module logger (inherits from root logger configured above)
 logger = logging.getLogger(__name__)
-
 
 def parse_args(argv=None):
     parser = create_parser(
@@ -33,7 +32,9 @@ def prepare_data(dataset_folder, cfg):
 
         classes_values = [str(num) for num in range(cfg.NUM_CLASSES)]
         reps_values = [str(num) for num in range(cfg.NUM_REPS)]
+        session_values =  [str(num) for num in range(0,5)]
         regex_filters = [
+            RegexFilter(left_bound="S_", right_bound="/", values=session_values, description="session"),
             RegexFilter(left_bound="C_", right_bound="_", values=classes_values, description="classes"),
             RegexFilter(left_bound="R_", right_bound="_emg.csv", values=reps_values, description="reps"), 
             ]
@@ -56,7 +57,6 @@ def main(argv=None):
     import emagerlib.models.models as etm
 
     _, cfg = setup_runtime(argv)
-
     data = prepare_data(cfg.DATASETS_PATH, cfg)
     # for i in range(len(data.data)):
     #     plt.plot(data.data[i])
@@ -74,12 +74,24 @@ def main(argv=None):
     logger.info(f"Training windows: {train_windows.shape}, Testing windows: {test_windows.shape}")
 
 
+    def compute_MAV(windows, batch_size, fe:FeatureExtractor):
+        data_parts = []
+
+        for start in range(0, len(windows), batch_size):
+            stop = min(start + batch_size, len(windows))
+            chunk = windows[start:stop]
+            mav_chunk = fe.getMAVfeat(chunk)
+            data_parts.append(mav_chunk)
+
+        data = np.concatenate(data_parts, axis=0)
+        return data
+
     # Features extraction
     # Extract MAV since it's a commonly used pipeline for EMG
     fe = FeatureExtractor()
-    train_data = fe.getMAVfeat(train_windows)
+    train_data = compute_MAV(train_windows, 20000, fe)
     train_labels = train_meta["classes"]
-    test_data = fe.getMAVfeat(test_windows)
+    test_data = compute_MAV(test_windows, 20000, fe)
     test_labels = test_meta["classes"]
 
     # pause for visualize features
@@ -111,7 +123,7 @@ def main(argv=None):
     logger.info(f"Current time: {current_time}")
 
     # Save the model
-    model_path = Path(cfg.SAVE_PATH) / f"libemg_torch_cnn_{cfg.SESSION}_{acc}_{current_time}.pth"
+    model_path = Path(cfg.SAVE_PATH) / f"big_cnn_{cfg.SESSION}_{acc}_{current_time}.pth"
     torch.save(classifier.state_dict(), model_path)
     logger.info(f"Model saved at {model_path}")
     return 0

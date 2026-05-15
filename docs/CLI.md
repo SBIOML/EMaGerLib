@@ -136,6 +136,16 @@ emager-live-64ch
 emager-visualize-libemg -c config.py
 ```
 
+### GUI
+
+**emager gui** - Open desktop command launcher for running EMaGer and custom shell commands
+
+```bash
+emager gui
+# or
+emager-gui
+```
+
 ### Testing
 
 **emager-test-hand** - Test hand control interface

@@ -30,7 +30,7 @@ class RealTimeGestureUi(QWidget):
         
 
         self.pixmaps = [QPixmap(img) for img in self.images_path]   
-        self.pixmaps = [pm.scaled(QSize(400, 400)) for pm in self.pixmaps]
+        self.pixmaps = [pm.scaled(QSize(800, 800)) for pm in self.pixmaps]
         self.setWindowTitle('RealTime Gesture Recognition')
 
         layout = QGridLayout()

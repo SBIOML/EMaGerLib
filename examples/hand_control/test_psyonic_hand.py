@@ -1,7 +1,6 @@
 import time
 from math import pi, sin
 from pathlib import Path
-from ah_wrapper import AHSerialClient
 import logging
 
 from emagerlib.control.gesture_decoder import decode_gesture, setup_gesture_decoder
@@ -12,32 +11,32 @@ from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
 
-# Parse arguments
-parser = create_parser(
-    description="Test Psyonic prosthetic hand control",
-    default_config=str(DEFAULT_CONFIG)
-)
-args = parser.parse_args()
-
-# Load configuration
-cfg = load_config(args.config)
-
-# Setup logging (after loading config so it can use config defaults)
-setup_logging(args, cfg, script_name="test_psyonic_hand")
-
 # Create module logger (inherits from root logger configured above)
 logger = logging.getLogger(__name__)
 
-# Save config if requested (uses logging internally)
-save_config_if_requested(args, cfg, script_name="test_psyonic_hand")
 
-# Setup gesture decoder with config
-setup_gesture_decoder(cfg)
+def parse_args(argv=None):
+    parser = create_parser(
+        description="Test Psyonic prosthetic hand control",
+        default_config=str(DEFAULT_CONFIG)
+    )
+    return parser.parse_args(argv)
 
-logger.info("Loading hand control test...")
+
+def setup_runtime(argv=None):
+    args = parse_args(argv)
+    cfg = load_config(args.config)
+    setup_logging(args, cfg, script_name="test_psyonic_hand")
+    save_config_if_requested(args, cfg, script_name="test_psyonic_hand")
+    setup_gesture_decoder(cfg)
+    logger.info("Loading hand control test...")
+    return args, cfg
 
 
-def main():
+def main(argv=None):
+    from ah_wrapper import AHSerialClient
+
+    _, cfg = setup_runtime(argv)
     client = AHSerialClient(write_thread=False)
     """
     Since write_thread == False we will need to issue send_command after every 
@@ -77,7 +76,8 @@ def main():
         pass
     finally:
         client.close()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

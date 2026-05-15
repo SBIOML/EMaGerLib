@@ -180,6 +180,16 @@ Run real-time control with a connected prosthetic:
 emager realtime-control
 ```
 
+### 7. Launch the Command GUI
+
+Open a desktop launcher to run EMaGer commands and custom shell commands:
+
+```bash
+emager gui
+# or
+emager-gui
+```
+
 ## Configuration
 
 EMaGerLib uses a flexible configuration system supporting multiple formats:
@@ -252,6 +262,7 @@ For backward compatibility, all commands are also available with their full name
 | `emager test-psyonic` | Test Psyonic hand |
 | `emager test-wave` | Test hand wave gestures |
 | `emager visualize-libemg` | Visualize with libemg |
+| `emager gui` | Open desktop command launcher |
 | `emager run-tests` | Run complete test suite |
 
 ### Basic Usage

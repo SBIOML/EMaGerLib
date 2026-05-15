@@ -20,8 +20,6 @@ dependencies = [
     "brevitas",
     "numpy",
     "scipy",
-    "matplotlib",
-    "pandas",
     "scikit-learn",
     "pyserial",
     "pyqt5",

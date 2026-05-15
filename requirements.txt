@@ -15,3 +15,5 @@ pyqt6
 pyqtgraph
 PyOpenGL #optimize visualization
 ability-hand
+bleak
+PyYAML

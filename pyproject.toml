@@ -14,7 +14,7 @@ authors = [
 license = {text = "MIT"}
 dependencies = [
     # Add your dependencies here from requirements.txt
-    "libemg", 
+    "libemg",
     "torch",
     "lightning",
     "brevitas",
@@ -28,7 +28,9 @@ dependencies = [
     "pyqt6",
     "pyqtgraph",
     "PyOpenGL", #optimize visualization
-    "ability-hand"
+    "ability-hand",
+    "bleak",     # BLE communication (ble_client)
+    "PyYAML",    # YAML config loading/saving
 ]
 
 [project.optional-dependencies]

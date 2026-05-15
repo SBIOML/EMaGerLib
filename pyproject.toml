@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "emagerlib"
-version = "0.1.0"
+version = "1.2.0"
 requires-python = ">=3.8"
 description = "A comprehensive toolbox for working with the EMaGer v1 and v3 EMG acquisition devices, featuring real-time gesture recognition and prosthetic hand control capabilities."
 readme = "README.md"

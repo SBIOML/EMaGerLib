@@ -18,6 +18,8 @@ config.py
 # VS Code
 .vscode/
 
+.claude/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

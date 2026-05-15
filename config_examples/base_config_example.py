@@ -6,7 +6,7 @@ SESSION = "finetune_mars_25_1"
 MEDIA_PATH = ROOT_EMAGERLIB / "media-test"
 MODEL_NAME = None # Note: MODEL_NAME will find the last model if set to None but you can hardcode it 
 # MODEL_NAME = "libemg_torch_cnn_D0_974_25-10-20_15h03.pth"
-PRETRAINED_MODEL_PATH = ROOT_EMAGERLIB / "models" / "Felix_5sessions.pth"
+PRETRAINED_MODEL_PATH = ROOT_EMAGERLIB / "models" / "EM_3sessions.pth"
 
 # ===== Gesture/classes configuration ===== #
 # hand_close, hand_open, index extension, ok, thumbs up

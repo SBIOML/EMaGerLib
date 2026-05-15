@@ -1,4 +1,4 @@
-libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3
+libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3-update
 torch
 lightning
 brevitas

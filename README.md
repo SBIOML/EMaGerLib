@@ -93,7 +93,7 @@ source venv/bin/activate
 pip install -e .
 ```
 
-This installs the package with all dependencies — including the [emager-v3 fork of libemg](https://github.com/Michiboi29/libemg-fork/tree/emager-v3), which is required because `emagerlib` uses `emagerv3_streamer` (only present in the fork). Console commands (`emager`, `emager-gui`, `emager-run-tests`) are made available globally.
+This installs the package with all dependencies — including the [emager-v3-update branch of the libemg fork](https://github.com/Michiboi29/libemg-fork/tree/emager-v3-update), which is required because `emagerlib` uses `emagerv3_streamer` (only present in the fork). Console commands (`emager`, `emager-gui`, `emager-run-tests`) are made available globally.
 
 **Optional: switch to a different libemg source**
 

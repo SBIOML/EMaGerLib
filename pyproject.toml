@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "emagerlib"
-version = "1.2.0"
+version = "1.2.1"
 requires-python = ">=3.8"
 description = "A comprehensive toolbox for working with the EMaGer v1 and v3 EMG acquisition devices, featuring real-time gesture recognition and prosthetic hand control capabilities."
 readme = "README.md"
@@ -14,9 +14,9 @@ authors = [
 license = {text = "MIT"}
 dependencies = [
     # emagerlib uses fork-only features (e.g. libemg.streamers.emagerv3_streamer).
-    # The fork branch emager-v3 is the supported libemg source.
+    # The fork branch emager-v3-update is the supported libemg source.
     # To switch sources, see [project.optional-dependencies] below.
-    "libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3",
+    "libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3-update",
     "torch",
     "lightning",
     "brevitas",

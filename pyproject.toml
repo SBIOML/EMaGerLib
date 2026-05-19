@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "emagerlib"
-version = "1.2.0"
+version = "1.2.1"
 requires-python = ">=3.8"
 description = "A comprehensive toolbox for working with the EMaGer v1 and v3 EMG acquisition devices, featuring real-time gesture recognition and prosthetic hand control capabilities."
 readme = "README.md"
@@ -13,40 +13,32 @@ authors = [
 ]
 license = {text = "MIT"}
 dependencies = [
-    # Add your dependencies here from requirements.txt
-    "libemg", 
+    "libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3",
     "torch",
     "lightning",
     "brevitas",
     "numpy",
     "scipy",
-    "matplotlib",
-    "pandas",
     "scikit-learn",
     "pyserial",
     "pyqt5",
     "pyqt6",
     "pyqtgraph",
     "PyOpenGL", #optimize visualization
-    "ability-hand"
+    "ability-hand",
+    "bleak",     # BLE communication (ble_client)
+    "PyYAML",    # YAML config loading/saving
 ]
 
+# To switch the libemg source from the default fork, run a manual two-step
+# swap (extras cannot override a base URL-pinned dependency, so we don't use
+# extras for this):
+#   pip uninstall libemg -y
+#   pip install libemg                                                # pypi release
+#   pip install "libemg @ git+https://github.com/libemg/libemg.git@latest"
 [project.optional-dependencies]
-# Override with latest branch (requires --force-reinstall --no-deps libemg)
-latest = [
-    "libemg @ git+https://github.com/libemg/libemg.git@latest#egg=libemg",
-]
-# Override with GitHub fork (requires --force-reinstall --no-deps libemg)
-fork = [
-    "libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3#egg=libemg",
-]
-# Override with local version (requires --force-reinstall --no-deps libemg)
-local = [
-    "libemg @ file:///C:/GIT/libemg-fork", # Change this path to your local libemg-fork path
-]
 dev = [
-    # Add developer dependencies here
-    "unittest",
+    # Add developer dependencies here when needed (e.g. pytest, ruff)
 ]
 
 [project.scripts]

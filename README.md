@@ -93,25 +93,40 @@ source venv/bin/activate
 pip install -e .
 ```
 
-This installs the package with all dependencies and makes console commands available globally.
+This installs the package with all dependencies — including the [`emager-v3` branch of the libemg fork](https://github.com/Michiboi29/libemg-fork/tree/emager-v3) (the current default/stable source for EMaGerLib). The fork is required because `emagerlib` uses `emagerv3_streamer`, which is only present in the fork. Console commands (`emager`, `emager-gui`, `emager-run-tests`) are made available globally.
 
-**Optional: Install with different libemg versions**
+**Optional: switch to a different libemg source**
+
+Extras can't override a URL-pinned base dependency, so source-switching is a manual two-step (`uninstall` then `install`). Pick **one** of the options below:
 
 ```bash
-# Install with latest libemg from main repository
-pip install -e ".[latest]"
+# Option 1 — libemg-fork @ emager-v3  (default/stable, what `pip install -e .` already gives you)
+pip uninstall libemg -y
+pip install "libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3"
 
-# Install with libemg fork (emager-v3 branch)
-pip install -e ".[fork]"
+# Option 2 — libemg-fork @ emager-v3-update  (in-progress fork branch with newer changes)
+pip uninstall libemg -y
+pip install "libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3-update"
 
-# Install with local libemg (edit path in pyproject.toml first)
-pip install -e ".[local]"
+# Option 3 — libemg @ PyPI  (upstream stable release main branch) (no-emager-v3 implementation yet)
+pip uninstall libemg -y
+pip install libemg
 
-# Install with development dependencies
-pip install -e ".[dev]"
+# Option 4 — libemg/libemg @ latest  (upstream most up-to-date branch) (no-emager-v3 implementation yet)
+pip uninstall libemg -y
+pip install "libemg @ git+https://github.com/libemg/libemg.git@latest"
 ```
 
-> **Note**: The package automatically installs the required `emager-v3` branch of the libemg fork, which provides support for both EMaGer v1 and v3 devices.
+> **Heads up**: only the two fork options (1, 2) provide `emagerv3_streamer`. Options 3 and 4 will break any code path that depends on it (currently `emagerlib/utils/streamer_utils.py` and the v3 visualization examples).
+
+**Local libemg development**
+
+If you're developing libemg-fork locally and want changes to apply live:
+
+```bash
+pip uninstall libemg -y
+pip install -e /path/to/your/libemg-fork
+```
 
 ### Alternative: Manual Installation
 
@@ -122,6 +137,18 @@ pip install -r requirements.txt
 > **Note**: For troubleshooting and advanced setup, see the [Troubleshooting Guide](docs/TROUBLESHOOTING.md).
 
 ## Quick Start
+
+### Recommended: launch the Command GUI
+
+If you're new to EMaGerLib, **start here**. The Command Launcher is a desktop GUI that exposes every command in the sections below — configure, visualize, collect data, train, predict, control — plus an editable runtime config and a free-form shell field. You don't need to memorize CLI flags.
+
+```bash
+emager gui
+# or
+emager-gui
+```
+
+> The CLI-style steps below are still fully supported and useful for scripting, headless runs, or CI. The GUI is just the easiest entry point.
 
 > **Tip**: After installing with `pip install -e .`, you can use the unified `emager` command (e.g., `emager train-cnn`), individual commands (e.g., `emager-train-cnn`), or run scripts directly (e.g., `python examples/training/train_cnn.py`).
 
@@ -178,16 +205,6 @@ Run real-time control with a connected prosthetic:
 
 ```bash
 emager realtime-control
-```
-
-### 7. Launch the Command GUI
-
-Open a desktop launcher to run EMaGer commands and custom shell commands:
-
-```bash
-emager gui
-# or
-emager-gui
 ```
 
 ## Configuration

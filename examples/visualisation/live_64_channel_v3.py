@@ -20,12 +20,15 @@ import time
 import argparse
 import numpy as np
 
+# Import libemg (and its transitive torch dep, since libemg PR #130) BEFORE any
+# Qt binding. On Windows, loading torch after a Qt binding makes c10.dll's DLL
+# loader pick up Qt's shipped runtimes from PATH, producing WinError 1114.
+from libemg.data_handler import OnlineDataHandler
+from libemg.streamers import emagerv3_streamer  # must start your streamer process
+
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtGui import QFont
 import pyqtgraph as pg
-
-from libemg.data_handler import OnlineDataHandler
-from libemg.streamers import emagerv3_streamer  # must start your streamer process
 
 
 # -----------------------------

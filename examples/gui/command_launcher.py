@@ -591,6 +591,18 @@ class CommandLauncherPyQt(QMainWindow):
         self.output.setMinimumHeight(180)
         output_layout.addWidget(self.output)
 
+        stdin_layout = QHBoxLayout()
+        stdin_layout.setContentsMargins(0, 0, 0, 0)
+        stdin_layout.setSpacing(6)
+        self.stdin_input = QLineEdit()
+        self.stdin_input.setPlaceholderText("Type input for the running process, then press Enter or Send")
+        self.stdin_input.returnPressed.connect(self._send_stdin)
+        self.send_stdin_button = QPushButton("Send")
+        self.send_stdin_button.clicked.connect(self._send_stdin)
+        stdin_layout.addWidget(self.stdin_input)
+        stdin_layout.addWidget(self.send_stdin_button)
+        output_layout.addLayout(stdin_layout)
+
         self.root_layout.addWidget(self.output_section, stretch=1)
 
         self.setCentralWidget(central)
@@ -868,6 +880,16 @@ class CommandLauncherPyQt(QMainWindow):
         if self.process.state() == QProcess.ProcessState.NotRunning:
             self.status_label.setText("Error")
             self._append_output("Failed to start command.\n")
+
+    def _send_stdin(self):
+        text = self.stdin_input.text()
+        if not self._is_running():
+            self._append_output("No running process to send input to.\n")
+            return
+        payload = (text + "\n").encode("utf-8", errors="replace")
+        self.process.write(payload)
+        self._append_output(f"> {text}\n")
+        self.stdin_input.clear()
 
     def _read_process_output(self):
         stdout_data = bytes(self.process.readAllStandardOutput()).decode(errors="replace")

@@ -13,10 +13,7 @@ authors = [
 ]
 license = {text = "MIT"}
 dependencies = [
-    # emagerlib uses fork-only features (e.g. libemg.streamers.emagerv3_streamer).
-    # The fork branch emager-v3-update is the supported libemg source.
-    # To switch sources, see [project.optional-dependencies] below.
-    "libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3-update",
+    "libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3",
     "torch",
     "lightning",
     "brevitas",
@@ -33,12 +30,13 @@ dependencies = [
     "PyYAML",    # YAML config loading/saving
 ]
 
-[project.optional-dependencies]
-# Alternative libemg sources. To switch from the default fork:
+# To switch the libemg source from the default fork, run a manual two-step
+# swap (extras cannot override a base URL-pinned dependency, so we don't use
+# extras for this):
 #   pip uninstall libemg -y
-#   pip install -e ".[pypi]"     # or [latest]
-pypi   = ["libemg"]
-latest = ["libemg @ git+https://github.com/libemg/libemg.git@latest"]
+#   pip install libemg                                                # pypi release
+#   pip install "libemg @ git+https://github.com/libemg/libemg.git@latest"
+[project.optional-dependencies]
 dev = [
     # Add developer dependencies here when needed (e.g. pytest, ruff)
 ]

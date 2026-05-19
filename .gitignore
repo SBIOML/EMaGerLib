@@ -4,6 +4,7 @@ TODO.txt
 
 # Model weights (host externally, do not commit)
 *.pth
+models/
 
 ### ===============CONFIGURABLE==================== ###
 ### CHANGE OR ADD HERE IF YOU MODIFY IN CONFIG FILE ###
@@ -20,6 +21,8 @@ config.py
 
 # VS Code
 .vscode/
+
+.claude/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

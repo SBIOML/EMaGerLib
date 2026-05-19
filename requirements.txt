@@ -1,13 +1,9 @@
-libemg
-# git+https://github.com/Michiboi29/libemg-fork.git@emager-v3#egg=libemg
-# -e "C:\GIT\libemg-fork"
+libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3
 torch
 lightning
 brevitas
 numpy
 scipy
-matplotlib
-pandas
 scikit-learn
 pyserial
 pyqt5
@@ -15,3 +11,5 @@ pyqt6
 pyqtgraph
 PyOpenGL #optimize visualization
 ability-hand
+bleak
+PyYAML

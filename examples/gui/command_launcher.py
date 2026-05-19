@@ -12,7 +12,7 @@ from typing import Any
 from emagerlib import ROOT_EMAGERLIB
 
 try:
-    from PyQt6.QtCore import QProcess, Qt
+    from PyQt6.QtCore import QProcess, QProcessEnvironment, Qt
     from PyQt6.QtGui import QFont
     from PyQt6.QtWidgets import (
         QApplication,
@@ -430,6 +430,7 @@ class CommandLauncherPyQt(QMainWindow):
 
         self.process = QProcess(self)
         self.process.setWorkingDirectory(str(PROJECT_ROOT))
+        self.process.setProcessEnvironment(self._build_clean_process_env())
         self.process.readyReadStandardOutput.connect(self._read_process_output)
         self.process.readyReadStandardError.connect(self._read_process_output)
         self.process.finished.connect(self._on_process_finished)
@@ -880,6 +881,23 @@ class CommandLauncherPyQt(QMainWindow):
         if self.process.state() == QProcess.ProcessState.NotRunning:
             self.status_label.setText("Error")
             self._append_output("Failed to start command.\n")
+
+    def _build_clean_process_env(self):
+        # PyQt6 prepends its bundled Qt6 DLL dir to PATH on import. The child
+        # python.exe inherits that PATH and, on Windows, torch's c10.dll DLL
+        # loader can pick up Qt6-shipped runtimes (Intel OMP, ICU, MSVC) that
+        # conflict with torch's, yielding WinError 1114. Strip it.
+        env = QProcessEnvironment.systemEnvironment()
+        path_value = env.value("PATH", "")
+        if not path_value:
+            return env
+        needle = os.path.normcase(os.path.join("PyQt6", "Qt6", "bin"))
+        kept = [
+            entry for entry in path_value.split(os.pathsep)
+            if needle not in os.path.normcase(entry)
+        ]
+        env.insert("PATH", os.pathsep.join(kept))
+        return env
 
     def _send_stdin(self):
         text = self.stdin_input.text()

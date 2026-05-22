@@ -5,7 +5,7 @@ from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
 
 # Default configuration path
-DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
+DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "test_new_cnn_config.py"
 
 # Create module logger (inherits from root logger configured above)
 logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ def main(argv=None):
     model_path = Path(cfg.SAVE_PATH) / f"libemg_torch_cnn_{cfg.SESSION}_{acc}_{current_time}.pth"
     torch.save(classifier.state_dict(), model_path)
     logger.info(f"Model saved at {model_path}")
-    return 0
+    return res[0]["test_acc"]
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

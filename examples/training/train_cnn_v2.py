@@ -112,8 +112,8 @@ def main(argv=None):
     model_path = Path(cfg.SAVE_PATH) / f"emager_cnn_{cfg.SESSION}_{acc:.3f}_{timestamp}.pth"
     torch.save(model.state_dict(), model_path)
     logger.info(f"Model saved: {model_path}")
-    return 0
+    return acc
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

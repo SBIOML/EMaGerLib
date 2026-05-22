@@ -8,9 +8,7 @@ from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
 logger = logging.getLogger(__name__)
 
-# ── Models to test ────────────────────────────────────────────────────
 # Comment / uncomment to select which variants to run.
-# All selected models are trained and evaluated on the same data.
 MODELS_TO_TEST = [
     "EmagerCNNBase",
     "EmagerCNNWide",
@@ -70,25 +68,27 @@ def main(argv=None):
 
     _, cfg = setup_runtime(argv)
 
-    # ── 1. Load & filter raw EMG ──────────────────────────────────────
+    # -- 1. Load & filter raw EMG -------------------------------------------------
     odh = load_and_filter(cfg.DATASETS_PATH, cfg)
 
-    # ── 2. Split by repetition ────────────────────────────────────────
+    # -- 2. Split by repetition ---------------------------------------------------
     train_odh = odh.isolate_data("reps", cfg.TRAIN_REPS)
     test_odh  = odh.isolate_data("reps", cfg.TEST_REPS)
 
-    # ── 3. Extract windows ────────────────────────────────────────────
+    # -- 3. Extract windows -------------------------------------------------------
     train_windows, train_meta = train_odh.parse_windows(cfg.WINDOW_SIZE, cfg.WINDOW_INCREMENT)
     test_windows,  test_meta  = test_odh.parse_windows( cfg.WINDOW_SIZE, cfg.WINDOW_INCREMENT)
-    logger.info(f"Windows  — train: {train_windows.shape},  test: {test_windows.shape}")
+    logger.info(f"Windows  -- train: {train_windows.shape},  test: {test_windows.shape}")
 
-    # ── 4. MAV compression (time axis → scalar per channel) ───────────
+    # -- 4. MAV compression (time axis -> scalar per channel) ---------------------
+    # Each window (WINDOW_SIZE x 64 channels) is reduced to one value per channel.
+    # MAV collapses the time axis; the CNN sees a 4x16 map of signal energy.
     train_mav    = np.mean(np.abs(train_windows), axis=2)   # (N_train, 64)
     train_labels = train_meta["classes"]
     test_mav     = np.mean(np.abs(test_windows),  axis=2)   # (N_test,  64)
     test_labels  = test_meta["classes"]
 
-    # ── 5. Build DataLoaders (shared across all models) ───────────────
+    # -- 5. Build DataLoaders (shared across all models) --------------------------
     train_dl = DataLoader(
         TensorDataset(
             torch.from_numpy(train_mav.astype(np.float32)),
@@ -108,12 +108,14 @@ def main(argv=None):
         drop_last=False,
     )
 
-    # ── 6. Train & evaluate each model ────────────────────────────────
-    results = {}
+    # -- 6. Train & evaluate each model -------------------------------------------
+    results   = {}
     timestamp = datetime.datetime.now().strftime("%y-%m-%d_%Hh%M")
 
     for model_name in MODELS_TO_TEST:
-        logger.info(f"\n{'─'*50}\nTraining {model_name}\n{'─'*50}")
+        logger.info("-" * 50)
+        logger.info(f"Training {model_name}")
+        logger.info("-" * 50)
 
         model_class = getattr(new_models, model_name)
         model = model_class((4, 16), cfg.NUM_CLASSES)
@@ -122,19 +124,21 @@ def main(argv=None):
         res = model.fit(train_dl, test_dl, max_epochs=cfg.EPOCH)
         acc = res[0]["test_acc"]
         results[model_name] = acc
-        logger.info(f"{model_name} — test accuracy: {acc:.1%}")
+        logger.info(f"{model_name} -- test accuracy: {acc:.1%}")
 
         model_path = Path(cfg.SAVE_PATH) / f"{model_name}_{cfg.SESSION}_{acc:.3f}_{timestamp}.pth"
         torch.save(model.state_dict(), model_path)
         logger.info(f"Saved: {model_path}")
 
-    # ── 7. Summary ────────────────────────────────────────────────────
-    logger.info(f"\n{'='*50}\nResults summary\n{'='*50}")
+    # -- 7. Summary ---------------------------------------------------------------
+    logger.info("=" * 50)
+    logger.info("Results summary")
+    logger.info("=" * 50)
     for name, acc in sorted(results.items(), key=lambda x: x[1], reverse=True):
         logger.info(f"  {name:<22} {acc:.1%}")
 
-    return 0
+    return results
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

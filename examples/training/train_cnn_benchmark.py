@@ -53,7 +53,7 @@ def read_dataset_info(dataset_path: Path):
     return d["num_motions"], d["num_reps"]
 
 
-def load_and_filter(dataset_path: Path, num_classes: int, num_reps: int):
+def load_and_filter(dataset_path: Path, num_classes: int, num_reps: int, sampling: int):
     """Load raw EMG from disk and apply notch + bandpass filters."""
     from libemg.data_handler import OfflineDataHandler, RegexFilter
     from libemg.filtering import Filter
@@ -66,7 +66,7 @@ def load_and_filter(dataset_path: Path, num_classes: int, num_reps: int):
             RegexFilter(left_bound="R_", right_bound="_emg.csv", values=[str(i) for i in range(num_reps)],    description="reps"),
         ],
     )
-    filt = Filter(SAMPLING)
+    filt = Filter(sampling)
     filt.install_filters({"name": "notch",    "cutoff": 60,        "bandwidth": 3})
     filt.install_filters({"name": "bandpass", "cutoff": [20, 450], "order": 4})
     filt.filter(odh)
@@ -112,12 +112,27 @@ def print_results_table(results: dict, datasets: list, models: list, seeds: list
     logger.info(sep)
 
 
-def main(datasets=None, seeds=None, models=None):
+def main(datasets=None, seeds=None, models=None, config=None):
     import torch
     from torch.utils.data import DataLoader, TensorDataset
     import emagerlib.models.new_emager_cnn as new_models
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+    # If a config file is provided, pull training hyperparams from it.
+    # Dataset selection is always controlled by the datasets param / DATASETS constant.
+    if config is not None:
+        from emagerlib.config.load_config import load_config as _load_config
+        _cfg             = _load_config(config)
+        _window_size      = _cfg.WINDOW_SIZE
+        _window_increment = _cfg.WINDOW_INCREMENT
+        _max_epochs       = _cfg.EPOCH
+        _sampling         = _cfg.SAMPLING
+    else:
+        _window_size      = WINDOW_SIZE
+        _window_increment = WINDOW_INCREMENT
+        _max_epochs       = MAX_EPOCHS
+        _sampling         = SAMPLING
 
     _datasets = datasets if datasets is not None else DATASETS
     _seeds    = seeds    if seeds    is not None else SEEDS
@@ -141,15 +156,15 @@ def main(datasets=None, seeds=None, models=None):
         logger.info(f"  {num_classes} classes, {num_reps} reps -- train=[0..{num_reps-2}], test=[{num_reps-1}]")
 
         # -- 1. Load & filter raw EMG -----------------------------------------
-        odh = load_and_filter(dataset_path, num_classes, num_reps)
+        odh = load_and_filter(dataset_path, num_classes, num_reps, _sampling)
 
         # -- 2. Split by repetition -------------------------------------------
         train_odh = odh.isolate_data("reps", list(range(num_reps - 1)))
         test_odh  = odh.isolate_data("reps", [num_reps - 1])
 
         # -- 3. Extract windows -----------------------------------------------
-        train_windows, train_meta = train_odh.parse_windows(WINDOW_SIZE, WINDOW_INCREMENT)
-        test_windows,  test_meta  = test_odh.parse_windows( WINDOW_SIZE, WINDOW_INCREMENT)
+        train_windows, train_meta = train_odh.parse_windows(_window_size, _window_increment)
+        test_windows,  test_meta  = test_odh.parse_windows( _window_size, _window_increment)
         logger.info(f"  Windows -- train: {train_windows.shape},  test: {test_windows.shape}")
 
         # -- 4. MAV compression (time axis -> scalar per channel) -------------
@@ -188,7 +203,7 @@ def main(datasets=None, seeds=None, models=None):
                 model = model_class((4, 16), num_classes)
                 logger.info(f"    seed={seed}  params={sum(p.numel() for p in model.parameters()):,}")
 
-                res = model.fit(train_dl, test_dl, max_epochs=MAX_EPOCHS)
+                res = model.fit(train_dl, test_dl, max_epochs=_max_epochs)
                 acc = res[0]["test_acc"]
                 seed_accs.append(acc)
                 logger.info(f"    seed={seed}  acc={acc:.1%}")
@@ -204,4 +219,8 @@ def main(datasets=None, seeds=None, models=None):
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    _config = None
+    if "--config" in sys.argv:
+        _config = sys.argv[sys.argv.index("--config") + 1]
+    main(config=_config)

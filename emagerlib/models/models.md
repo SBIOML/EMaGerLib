@@ -222,25 +222,51 @@ Also input-size agnostic — works on any spatial dimension without recomputing 
 
 ## Summary table
 
-| Model | Key difference | Params | File size | Test acc* |
+| Model | Key difference | Params | File size | Overall acc (LOO)* |
 |---|---|---|---|---|
-| Legacy (`models.py`) | Conv→**ReLU→BN** (non-standard) | 562 K | 2.2 MB | 99.8% |
-| `emager_cnn.py` (reference) | Conv→BN→ReLU (standard) | 562 K | 2.2 MB | 99.3% |
-| `EmagerCNNBase` | Identical to reference | 562 K | 2.2 MB | 99.7% |
-| `EmagerCNNWide` | 64-ch convs, bigger FC | 1.17 M | 4.7 MB | 99.6% |
-| `EmagerCNNDeep` | Extra 3×3 conv layer | 572 K | 2.3 MB | 99.6% |
-| `EmagerCNNLight` | 16-ch convs, 128-dim FC | 141 K | 0.6 MB | 99.3% |
-| `EmagerCNNStrided` | Stride=2 collapses spatial | 44 K | 0.18 MB | **99.5%** |
-| `EmagerCNNCircular` | Ring padding on W only (column axis) | 562 K | 2.2 MB | TBD |
+| Legacy (`models.py`) | Conv→**ReLU→BN** (non-standard) | 562 K | 2.2 MB | not benchmarked |
+| `emager_cnn.py` (reference) | Conv→BN→ReLU (standard) | 562 K | 2.2 MB | not benchmarked |
+| `EmagerCNNDeep` | Extra 3×3 conv layer | 572 K | 2.3 MB | **94.5%** |
+| `EmagerCNNBase` | Identical to reference | 562 K | 2.2 MB | 94.1% |
+| `EmagerCNNLight` | 16-ch convs, 128-dim FC | 141 K | 0.6 MB | 94.0% |
+| `EmagerCNNCircular` | Ring padding on W only (column axis)† | 562 K | 2.2 MB | 93.7%† |
+| `EmagerCNNWide` | 64-ch convs, bigger FC | 1.17 M | 4.7 MB | 93.6% |
+| `EmagerCNNStrided` | Stride=2 collapses spatial | 44 K | 0.18 MB | 93.1% |
 | `EmagerCNNRingStrided` | Strided + ring padding on W only | 44 K | 0.18 MB | TBD |
-| `EmagerCNNGAP` | Global avg pool, no FC | 36 K | 0.14 MB | 98.7% |
+| `EmagerCNNGAP` | Global avg pool, no FC | 36 K | 0.14 MB | 90.4% |
 
-*Tested on `Test_EM_C7_R5` (7 classes, 5 reps, train=[0-3], test=[4], 10 epochs, CPU).
+*Leave-one-out cross-validation across reps, averaged over seeds `[42, 123, 456]` on 3 datasets
+(`Test_EM_C7_R5`, `Test_EM_C7_R5_02`, `Test_EM_C7_R5_03`), 7 classes × 5 reps each, 10 epochs.
+315 total fits, ~3h 55m wall time at ~45s/fit. See breakdown below.
+
+†`EmagerCNNCircular` was re-implemented post-benchmark to use `RingPad2d` (W-circular,
+H-zero) instead of PyTorch's both-axes `padding_mode='circular'`. The 93.7% number is
+from the prior both-axes version and needs to be re-measured.
+
+### Per-dataset breakdown (LOO, mean ± std over reps × seeds)
+
+| Model | Test_EM_C7_R5 | Test_EM_C7_R5_02 | Test_EM_C7_R5_03 | Overall |
+|---|---|---|---|---|
+| EmagerCNNDeep     | 98.5% ± 1.5% | 93.4% ± 3.2% | 91.5% ± 6.2%  | **94.5%** |
+| EmagerCNNBase     | 98.7% ± 1.5% | 93.0% ± 4.3% | 90.6% ± 8.4%  | 94.1% |
+| EmagerCNNLight    | 98.3% ± 2.8% | 93.3% ± 4.0% | 90.4% ± 7.2%  | 94.0% |
+| EmagerCNNCircular†| 98.8% ± 1.5% | 92.0% ± 4.5% | 90.4% ± 7.6%  | 93.7%† |
+| EmagerCNNWide     | 98.7% ± 1.5% | 92.3% ± 3.4% | 89.8% ± 8.7%  | 93.6% |
+| EmagerCNNStrided  | 98.4% ± 1.6% | 90.4% ± 5.5% | 90.4% ± 7.2%  | 93.1% |
+| EmagerCNNRingStrided | TBD | TBD | TBD | TBD |
+| EmagerCNNGAP      | 93.9% ± 10.2% | 90.7% ± 6.0% | 86.6% ± 9.2% | 90.4% |
+
+### Takeaways
 
 > The dominant cost in Base / Wide / Deep / Circular is `Linear(2048, 256)` (~525 K params, ~2.1 MB).
-> **EmagerCNNStrided** is the best size/accuracy tradeoff so far: 12× fewer params than Base for only −0.2% accuracy.
-> **EmagerCNNCircular** previously underperformed (98.2%) because PyTorch's `padding_mode='circular'` wraps both H and W — but only the column axis is a physical ring. The current implementation uses `RingPad2d` (W-circular, H-zero) for the physically correct prior; pending re-test.
-> **EmagerCNNRingStrided** combines both fixes: strided collapse + ring padding on W only.
+>
+> **EmagerCNNDeep** edges out Base by +0.4% for only ~10K extra params — one extra 3×3 conv is a cheap win.
+> **EmagerCNNWide** does not pay off: 2× the params of Base for −0.5% accuracy.
+> **EmagerCNNLight** is the best small-model accuracy: ~4× fewer params than Base for only −0.1% accuracy. Beats Strided by +0.9%.
+> **EmagerCNNStrided** remains the best size/accuracy ratio (12× fewer params than Base for −1.0% accuracy), but the LOO penalty is larger than the single-split number suggested.
+> **EmagerCNNCircular** held up under LOO (−0.4% vs Base) on the prior both-axes implementation. Since then the padding was rewritten to wrap W only (the physical electrode ring); re-benchmark pending. **EmagerCNNRingStrided** stacks the same W-only ring padding on top of `EmagerCNNStrided` and is also pending its first benchmark.
+> **EmagerCNNGAP** is the only clear loser: −3.7% vs Base, and a large std on `Test_EM_C7_R5` (±10.2%) — removing the FC hidden layer costs too much capacity.
+> Variance grows on `_02` and `_03` (std up to ±9% on some models) — these splits are noticeably harder than the original `Test_EM_C7_R5`.
 
 ---
 

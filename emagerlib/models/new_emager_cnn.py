@@ -7,6 +7,31 @@ from lightning.pytorch.callbacks import EarlyStopping
 
 
 # ==============================================================================
+#  Padding primitives
+# ==============================================================================
+
+class RingPad2d(nn.Module):
+    """
+    Per-axis padding for the electrode grid:
+      - circular on W (electrode columns form a physical ring: col 0 is adjacent to col 15)
+      - zero on H (rows do not loop)
+
+    Used by EmagerCNNCircular and EmagerCNNRingStrided. Conv2d after this layer should use padding=0.
+    """
+    def __init__(self, pad_w: int, pad_h: int):
+        super().__init__()
+        self.pad_w = pad_w
+        self.pad_h = pad_h
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.pad_w > 0:
+            x = F.pad(x, (self.pad_w, self.pad_w, 0, 0), mode="circular")
+        if self.pad_h > 0:
+            x = F.pad(x, (0, 0, self.pad_h, self.pad_h), mode="constant", value=0.0)
+        return x
+
+
+# ==============================================================================
 #  Shared Lightning + LibEMG boilerplate
 #  All variants inherit from this — architecture goes in __init__ of each subclass
 # ==============================================================================
@@ -51,9 +76,13 @@ class _EmagerBase(L.LightningModule):
         return x.float().to(self.device)
 
     def predict_proba(self, x) -> np.ndarray:
+        was_training = self.training
         self.eval()
-        with torch.no_grad():
-            return F.softmax(self(self.convert_input(x)), dim=1).cpu().numpy()
+        try:
+            with torch.no_grad():
+                return F.softmax(self(self.convert_input(x)), dim=1).cpu().numpy()
+        finally:
+            self.train(was_training)
 
     def predict(self, x) -> np.ndarray:
         return self.predict_proba(x).argmax(axis=1)
@@ -248,18 +277,22 @@ class EmagerCNNStrided(_EmagerBase):
 
 class EmagerCNNCircular(_EmagerBase):
     """
-    Circular padding on all conv layers — treats the column axis (electrodes) as periodic.
-    The 16 electrode columns sit on a physical ring, so the last column is spatially
-    adjacent to the first. Circular padding reflects that instead of padding with zeros.
+    Ring padding on all conv layers — treats the electrode column axis (W) as periodic.
+    The 16 electrode columns sit on a physical ring, so column 0 is adjacent to column 15.
+    The row axis (H) does NOT loop, so it is zero-padded instead of wrapped.
 
-    Architecture is identical to Base — only the padding mode changes.
+    Uses RingPad2d (W-circular, H-zero) followed by Conv2d(padding=0). PyTorch's built-in
+    padding_mode='circular' wraps both H and W, which injects non-physical correlations
+    on the H axis — that is why the earlier both-axes variant underperformed Base.
+
+    Architecture is identical to Base — only the padding scheme changes.
 
     input (B, H*W)
       └─ BN1d
       └─ reshape (B, 1, H, W)
-      └─ Conv2d(1  -> 32, 3x3, padding_mode='circular') + BN2d + ReLU
-      └─ Conv2d(32 -> 32, 3x3, padding_mode='circular') + BN2d + ReLU
-      └─ Conv2d(32 -> 32, 5x5, padding_mode='circular') + BN2d + ReLU
+      └─ RingPad(w=1, h=1) → Conv2d(1  -> 32, 3x3, padding=0) + BN2d + ReLU
+      └─ RingPad(w=1, h=1) → Conv2d(32 -> 32, 3x3, padding=0) + BN2d + ReLU
+      └─ RingPad(w=2, h=2) → Conv2d(32 -> 32, 5x5, padding=0) + BN2d + ReLU
       └─ Flatten
       └─ Linear(32·H·W -> 256) + Dropout(0.5) + BN1d + ReLU
       └─ Linear(256 -> C)
@@ -271,14 +304,71 @@ class EmagerCNNCircular(_EmagerBase):
 
         self.normalize  = nn.BatchNorm1d(n)
         self.features   = nn.Sequential(
-            nn.Conv2d(1,  32, kernel_size=3, padding=1, padding_mode="circular"), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
-            nn.Conv2d(32, 32, kernel_size=3, padding=1, padding_mode="circular"), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
-            nn.Conv2d(32, 32, kernel_size=5, padding=2, padding_mode="circular"), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
+            RingPad2d(pad_w=1, pad_h=1),
+            nn.Conv2d(1,  32, kernel_size=3, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
+            RingPad2d(pad_w=1, pad_h=1),
+            nn.Conv2d(32, 32, kernel_size=3, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
+            RingPad2d(pad_w=2, pad_h=2),
+            nn.Conv2d(32, 32, kernel_size=5, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
             nn.Flatten(),
         )
         self.classifier = nn.Sequential(
             nn.Linear(32 * n, 256), nn.Dropout(0.5), nn.BatchNorm1d(256), nn.ReLU(inplace=True),
             nn.Linear(256, num_classes),
+        )
+        self.criterion  = nn.CrossEntropyLoss()
+
+
+class EmagerCNNRingStrided(_EmagerBase):
+    """
+    Combines two techniques: strided spatial collapse (EmagerCNNStrided) and
+    column-only circular padding (a corrected EmagerCNNCircular).
+
+    Why ring padding on W only: the 16 electrode columns sit on a physical ring,
+    so column 0 is adjacent to column 15. The H axis (rows) does not loop, so
+    wrapping it (as plain padding_mode='circular' does) injects non-physical
+    correlations — which is why EmagerCNNCircular underperforms Base.
+
+    Why strided: collapses (4,16) → (1,4) before flatten, removing the dominant
+    Linear(2048,256) cost while keeping ~same accuracy as Base.
+
+    input (B, H*W)
+      └─ BN1d
+      └─ reshape (B, 1, 4, 16)
+      └─ RingPad(w=1, h=1) → (6, 18)
+      └─ Conv2d(1  -> 32, 3x3, stride=2, padding=0) + BN2d + ReLU  →  (B, 32, 2, 8)
+      └─ RingPad(w=1, h=1) → (4, 10)
+      └─ Conv2d(32 -> 32, 3x3, stride=2, padding=0) + BN2d + ReLU  →  (B, 32, 1, 4)
+      └─ RingPad(w=2, h=2) → (5, 8)
+      └─ Conv2d(32 -> 32, 5x5, stride=1, padding=0) + BN2d + ReLU  →  (B, 32, 1, 4)
+      └─ Flatten  →  (B, 128)
+      └─ Linear(128 -> 64) + Dropout(0.5) + BN1d + ReLU
+      └─ Linear(64 -> C)
+    """
+    def __init__(self, input_shape: tuple, num_classes: int, lr: float = 1e-3):
+        super().__init__()
+        self.save_hyperparameters()
+
+        # spatial size after two stride-2 convs (kernel=3, pad 1 each side via RingPad)
+        h = (input_shape[0] + 2 - 3) // 2 + 1
+        h = (h              + 2 - 3) // 2 + 1
+        w = (input_shape[1] + 2 - 3) // 2 + 1
+        w = (w              + 2 - 3) // 2 + 1
+        flat = 32 * h * w   # 128 for the default (4, 16) input
+
+        self.normalize  = nn.BatchNorm1d(int(np.prod(input_shape)))
+        self.features   = nn.Sequential(
+            RingPad2d(pad_w=1, pad_h=1),
+            nn.Conv2d(1,  32, kernel_size=3, stride=2, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
+            RingPad2d(pad_w=1, pad_h=1),
+            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
+            RingPad2d(pad_w=2, pad_h=2),
+            nn.Conv2d(32, 32, kernel_size=5, stride=1, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
+            nn.Flatten(),
+        )
+        self.classifier = nn.Sequential(
+            nn.Linear(flat, 64), nn.Dropout(0.5), nn.BatchNorm1d(64), nn.ReLU(inplace=True),
+            nn.Linear(64, num_classes),
         )
         self.criterion  = nn.CrossEntropyLoss()
 

@@ -158,17 +158,48 @@ Conv(1→32, 3x3, s=2) → Conv(32→32, 3x3, s=2) → Conv(32→32, 5x5) → Fl
 
 ### EmagerCNNCircular
 
-Same architecture as Base — only the padding mode changes.
-`padding_mode='circular'` wraps the padded border around to the opposite side instead of filling with zeros.
+Same architecture as Base — only the padding scheme changes.
+Uses `RingPad2d` (W-circular, H-zero) before each conv, then `Conv2d(padding=0)`.
 Physically motivated: the 16 electrode columns sit on a ring, so column 15 is adjacent to column 0.
 
-Note: PyTorch applies circular padding to **both** H and W dimensions. The row axis (4 rows) does not physically loop, so this is an approximation — worth testing whether it helps or hurts.
+Earlier version used PyTorch's `padding_mode='circular'`, which wraps **both** H and W.
+The row axis (4 rows) does not physically loop, so wrapping it injected non-physical
+correlations — that variant underperformed Base (98.2%). This version pads the
+row axis with zeros (matching Base) and only wraps the electrode column axis.
 
 ```
-Conv(1→32, 3x3, circular) → Conv(32→32, 3x3, circular) → Conv(32→32, 5x5, circular) → Flatten → Linear(2048→256) → Linear(256→C)
+RingPad(w=1,h=1) → Conv(1→32, 3x3, p=0) + BN + ReLU
+RingPad(w=1,h=1) → Conv(32→32, 3x3, p=0) + BN + ReLU
+RingPad(w=2,h=2) → Conv(32→32, 5x5, p=0) + BN + ReLU
+Flatten → Linear(2048→256) → Linear(256→C)
 ```
 
-**~562k params — ~2.2 MB** (identical to Base — padding_mode has no params)
+**~562k params — ~2.2 MB** (identical to Base — RingPad2d has no params)
+
+---
+
+### EmagerCNNRingStrided
+
+Combines two of the better techniques in the file: strided spatial collapse
+(from `EmagerCNNStrided`) and **per-axis** circular padding — circular on the
+column axis (W) only, zero on the row axis (H).
+
+This addresses the issue noted under `EmagerCNNCircular`: PyTorch's
+`padding_mode='circular'` wraps both H and W, but only the column axis is a
+physical ring on the device. `RingPad2d` does W-circular + H-zero manually,
+then the Conv2d uses `padding=0`.
+
+Same flatten size and parameter count as `EmagerCNNStrided` — the only
+difference is *which* values pad the conv inputs.
+
+```
+RingPad(w=1,h=1) → Conv(1→32, 3x3, s=2, p=0) → (2,8)
+RingPad(w=1,h=1) → Conv(32→32, 3x3, s=2, p=0) → (1,4)
+RingPad(w=2,h=2) → Conv(32→32, 5x5, s=1, p=0) → (1,4)
+Flatten(128) → Linear(128→64) → Linear(64→C)
+```
+
+**~44k params — ~0.18 MB** (identical to Strided)
 
 ---
 
@@ -200,14 +231,16 @@ Also input-size agnostic — works on any spatial dimension without recomputing 
 | `EmagerCNNDeep` | Extra 3×3 conv layer | 572 K | 2.3 MB | 99.6% |
 | `EmagerCNNLight` | 16-ch convs, 128-dim FC | 141 K | 0.6 MB | 99.3% |
 | `EmagerCNNStrided` | Stride=2 collapses spatial | 44 K | 0.18 MB | **99.5%** |
-| `EmagerCNNCircular` | Circular padding (both axes) | 562 K | 2.2 MB | 98.2% |
+| `EmagerCNNCircular` | Ring padding on W only (column axis) | 562 K | 2.2 MB | TBD |
+| `EmagerCNNRingStrided` | Strided + ring padding on W only | 44 K | 0.18 MB | TBD |
 | `EmagerCNNGAP` | Global avg pool, no FC | 36 K | 0.14 MB | 98.7% |
 
 *Tested on `Test_EM_C7_R5` (7 classes, 5 reps, train=[0-3], test=[4], 10 epochs, CPU).
 
 > The dominant cost in Base / Wide / Deep / Circular is `Linear(2048, 256)` (~525 K params, ~2.1 MB).
-> **EmagerCNNStrided** is the best size/accuracy tradeoff: 12× fewer params than Base for only −0.2% accuracy.
-> **EmagerCNNCircular** underperforms because circular padding is applied to both H and W axes, but the row axis (H=4) does not physically loop — only the electrode column axis (W=16) does.
+> **EmagerCNNStrided** is the best size/accuracy tradeoff so far: 12× fewer params than Base for only −0.2% accuracy.
+> **EmagerCNNCircular** previously underperformed (98.2%) because PyTorch's `padding_mode='circular'` wraps both H and W — but only the column axis is a physical ring. The current implementation uses `RingPad2d` (W-circular, H-zero) for the physically correct prior; pending re-test.
+> **EmagerCNNRingStrided** combines both fixes: strided collapse + ring padding on W only.
 
 ---
 

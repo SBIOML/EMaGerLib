@@ -27,12 +27,13 @@ SEEDS = [42, 123, 456]
 # Comment / uncomment to select which variants to include.
 MODELS_TO_TEST = [
     "EmagerCNNBase",
-    "EmagerCNNWide",
-    "EmagerCNNDeep",
-    "EmagerCNNLight",
+    # "EmagerCNNWide",
+    # "EmagerCNNDeep",
+    # "EmagerCNNLight",
     "EmagerCNNStrided",
     "EmagerCNNCircular",
-    "EmagerCNNGAP",
+    "EmagerCNNRingStrided",
+    # "EmagerCNNGAP",
 ]
 
 WINDOW_SIZE      = 200

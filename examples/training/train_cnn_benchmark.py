@@ -19,13 +19,13 @@ BASE_PATH = Path(__file__).parent.parent.parent / "Datasets"
 
 DATASETS = [
     "Test_EM_C7_R5",
-    "Test_EM_C7_R5_02",
-    "Test_EM_C7_R5_03",
+    # "Test_EM_C7_R5_02",
+    # "Test_EM_C7_R5_03",
 ]
 
 # Each model is trained once per seed. Results reported as mean +/- std.
 # Set to a single value (e.g. [42]) for a quick one-shot run.
-SEEDS = [42, 123, 456]
+SEEDS = [42]
 
 # Comment / uncomment to select which variants to include.
 MODELS_TO_TEST = [
@@ -100,17 +100,25 @@ def set_seed(seed: int):
     torch.manual_seed(seed)
 
 
-def print_results_table(results: dict, datasets: list, models: list, seeds: list):
-    col_w = 22
-    ds_w  = 20
-    ov_w  = 14
+def print_results_table(results: dict, datasets: list, models: list, seeds: list, model_stats: dict):
+    col_w   = 22
+    ds_w    = 20
+    ov_w    = 14
+    param_w = 14
+    size_w  = 14
 
     overall = {}
     for m in models:
         all_accs = [a for d in datasets for a in results[m].get(d, [])]
         overall[m] = np.mean(all_accs) if all_accs else float("nan")
 
-    header = "Model".ljust(col_w) + "".join(d[:ds_w].center(ds_w) for d in datasets) + "Overall".center(ov_w)
+    header = (
+        "Model".ljust(col_w)
+        + "".join(d[:ds_w].center(ds_w) for d in datasets)
+        + "Overall".center(ov_w)
+        + "Params".rjust(param_w)
+        + "Size (KB)".rjust(size_w)
+    )
     sep    = "-" * len(header)
 
     logger.info("=" * len(header))
@@ -127,6 +135,9 @@ def print_results_table(results: dict, datasets: list, models: list, seeds: list
             row += cell.center(ds_w)
         ov_str = f"{overall[m]:.1%}" if not np.isnan(overall[m]) else "N/A"
         row += ov_str.center(ov_w)
+        params, size_kb = model_stats.get(m, (None, None))
+        row += (f"{params:,}".rjust(param_w) if params is not None else "N/A".rjust(param_w))
+        row += (f"{size_kb:,.1f}".rjust(size_w) if size_kb is not None else "N/A".rjust(size_w))
         logger.info(row)
 
     logger.info(sep)
@@ -181,6 +192,8 @@ def main(datasets=None, seeds=None, models=None, config=None):
 
     # results[model][dataset] = [acc_fold0_seed0, acc_fold0_seed1, ...]
     results = {m: {} for m in _models}
+    # model_stats[model] = (param_count, state_dict_size_kb)
+    model_stats: dict = {}
 
     for dataset_name, dataset_path, num_classes, num_reps in dataset_info:
         logger.info("=" * 60)
@@ -225,8 +238,8 @@ def main(datasets=None, seeds=None, models=None, config=None):
             logger.info("-" * 50)
             run_accs = []
 
-            for s_idx, seed in enumerate(_seeds):
-                for f_idx, fold in enumerate(folds):
+            for seed in _seeds:
+                for fold in folds:
                     # -- 3. Build DataLoaders (rebuilt per seed for deterministic shuffle) --
                     set_seed(seed)
                     train_dl = DataLoader(
@@ -247,8 +260,11 @@ def main(datasets=None, seeds=None, models=None, config=None):
                     # -- 4. Train & evaluate ----------------------------------
                     model_class = getattr(new_models, model_name)
                     model = model_class((4, 16), num_classes)
-                    if s_idx == 0 and f_idx == 0:
-                        logger.info(f"    params: {sum(p.numel() for p in model.parameters()):,}")
+                    if model_name not in model_stats:
+                        params    = sum(p.numel() for p in model.parameters())
+                        size_kb   = sum(t.numel() * t.element_size() for t in model.state_dict().values()) / 1024
+                        model_stats[model_name] = (params, size_kb)
+                        logger.info(f"    params: {params:,}  size: {size_kb:,.1f} KB")
 
                     res = model.fit(train_dl, test_dl, max_epochs=_max_epochs)
                     acc = res[0]["test_acc"]
@@ -261,7 +277,7 @@ def main(datasets=None, seeds=None, models=None, config=None):
             logger.info(f"  {model_name:<22} {mean:.1%} +/- {std:.1%}  (n={len(run_accs)})")
 
     # -- 5. Print results table -----------------------------------------------
-    print_results_table(results, [d[0] for d in dataset_info], _models, _seeds)
+    print_results_table(results, [d[0] for d in dataset_info], _models, _seeds, model_stats)
 
     elapsed = time.perf_counter() - start_time
     logger.info("=" * 60)

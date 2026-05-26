@@ -21,6 +21,7 @@ import sys
 import logging
 import random
 
+import lightning
 import numpy as np
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
@@ -30,13 +31,6 @@ DEFAULT_CONFIG = str(Path(__file__).parent.parent.parent / "config_examples" / "
 
 # Single seed for a quick equivalence check; extend (e.g. [42, 123, 456]) for statistics.
 SEEDS = [42]
-
-
-def _set_seed(seed: int):
-    import torch
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
 
 
 def main(seeds=None):
@@ -60,7 +54,7 @@ def main(seeds=None):
     logger.info("=" * 60)
     accs_legacy = []
     for seed in _seeds:
-        _set_seed(seed)
+        lightning.seed_everything(seed)
         accs_legacy.append(run_legacy(args))
 
     # -- 2. Reference (train_cnn_v2.py -- Conv -> BN -> ReLU) -----------------
@@ -69,7 +63,7 @@ def main(seeds=None):
     logger.info("=" * 60)
     accs_reference = []
     for seed in _seeds:
-        _set_seed(seed)
+        lightning.seed_everything(seed)
         accs_reference.append(run_reference(args))
 
     # -- 3. Base (train_cnn_benchmark.py -- EmagerCNNBase only) ---------------

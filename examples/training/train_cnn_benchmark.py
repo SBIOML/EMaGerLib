@@ -4,6 +4,7 @@ import logging
 import random
 import time
 
+import lightning
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -92,13 +93,6 @@ def load_and_filter(dataset_path: Path, num_classes: int, num_reps: int, samplin
     filt.install_filters({"name": "bandpass", "cutoff": [20, 450], "order": 4})
     filt.filter(odh)
     return odh
-
-
-def set_seed(seed: int):
-    import torch
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
 
 
 def _fmt_macs(n):
@@ -322,7 +316,7 @@ def main(datasets=None, seeds=None, models=None, config=None):
             for seed in _seeds:
                 for fold in folds:
                     # -- 3. Build DataLoaders (rebuilt per seed for deterministic shuffle) --
-                    set_seed(seed)
+                    lightning.seed_everything(seed)
                     train_dl = DataLoader(
                         TensorDataset(
                             torch.from_numpy(fold["train_mav"].astype(np.float32)),

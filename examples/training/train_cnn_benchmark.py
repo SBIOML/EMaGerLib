@@ -101,12 +101,88 @@ def set_seed(seed: int):
     torch.manual_seed(seed)
 
 
+def _fmt_macs(n):
+    if n is None:
+        return "N/A"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.2f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}K"
+    return str(int(n))
+
+
+def compute_macs(model, input_shape) -> int:
+    """
+    Count multiply-accumulates (MACs) for one forward pass at batch=1.
+    Only Conv2d and Linear are counted -- they dominate compute for these
+    models (BN/ReLU/Flatten contribute <1%). Must run BEFORE any quantization:
+    once nn.Conv2d / nn.Linear are replaced with their quantized variants, the
+    hooks below stop firing.
+    """
+    import torch
+    import torch.nn as nn
+    macs = [0]
+    handles = []
+
+    def conv_hook(m, inp, out):
+        _, c_out, h_out, w_out = out.shape
+        k_h, k_w = m.kernel_size
+        c_in_per_group = m.in_channels // m.groups
+        macs[0] += h_out * w_out * c_out * c_in_per_group * k_h * k_w
+
+    def linear_hook(m, inp, out):
+        macs[0] += m.in_features * m.out_features
+
+    for mod in model.modules():
+        if isinstance(mod, nn.Conv2d):
+            handles.append(mod.register_forward_hook(conv_hook))
+        elif isinstance(mod, nn.Linear):
+            handles.append(mod.register_forward_hook(linear_hook))
+
+    was_training = model.training
+    model.eval()
+    try:
+        with torch.no_grad():
+            x = torch.zeros(1, int(np.prod(input_shape)))
+            model(x)
+    finally:
+        for h in handles:
+            h.remove()
+        model.train(was_training)
+    return macs[0]
+
+
+def compute_latency_ms(model, input_shape, num_threads: int = 1) -> float:
+    """
+    Median single-sample forward latency in milliseconds, measured single-threaded.
+    Quantized models will use fbgemm / qnnpack INT8 kernels here -- this is the
+    column that reflects the quantization speedup. (FLOPs/MACs do not.)
+    Host-CPU x86 timings; absolute numbers won't match an ARM deployment, but
+    the relative ordering between models is informative.
+    """
+    import torch
+    from torch.utils import benchmark
+    model.eval()
+    x = torch.zeros(1, int(np.prod(input_shape)))
+    with torch.no_grad():
+        for _ in range(10):
+            model(x)
+    t = benchmark.Timer(
+        stmt="with torch.no_grad():\n    model(x)",
+        globals={"model": model, "x": x, "torch": torch},
+        num_threads=num_threads,
+    ).blocked_autorange(min_run_time=0.5)
+    return t.median * 1000.0
+
+
 def print_results_table(results: dict, datasets: list, models: list, seeds: list, model_stats: dict):
     col_w   = 22
     ds_w    = 20
     ov_w    = 14
     param_w = 14
-    size_w  = 14
+    size_w  = 12
+    macs_w  = 12
+    lat_w   = 12
 
     overall = {}
     for m in models:
@@ -119,6 +195,8 @@ def print_results_table(results: dict, datasets: list, models: list, seeds: list
         + "Overall".center(ov_w)
         + "Params".rjust(param_w)
         + "Size (KB)".rjust(size_w)
+        + "MACs".rjust(macs_w)
+        + "Lat (ms)".rjust(lat_w)
     )
     sep    = "-" * len(header)
 
@@ -136,9 +214,11 @@ def print_results_table(results: dict, datasets: list, models: list, seeds: list
             row += cell.center(ds_w)
         ov_str = f"{overall[m]:.1%}" if not np.isnan(overall[m]) else "N/A"
         row += ov_str.center(ov_w)
-        params, size_kb = model_stats.get(m, (None, None))
-        row += (f"{params:,}".rjust(param_w) if params is not None else "N/A".rjust(param_w))
+        params, size_kb, macs, latency = model_stats.get(m, (None, None, None, None))
+        row += (f"{params:,}".rjust(param_w)   if params  is not None else "N/A".rjust(param_w))
         row += (f"{size_kb:,.1f}".rjust(size_w) if size_kb is not None else "N/A".rjust(size_w))
+        row += (_fmt_macs(macs).rjust(macs_w)   if macs    is not None else "N/A".rjust(macs_w))
+        row += (f"{latency:.2f}".rjust(lat_w)   if latency is not None else "N/A".rjust(lat_w))
         logger.info(row)
 
     logger.info(sep)
@@ -193,7 +273,7 @@ def main(datasets=None, seeds=None, models=None, config=None):
 
     # results[model][dataset] = [acc_fold0_seed0, acc_fold0_seed1, ...]
     results = {m: {} for m in _models}
-    # model_stats[model] = (param_count, state_dict_size_kb)
+    # model_stats[model] = (param_count, state_dict_size_kb, macs, latency_ms)
     model_stats: dict = {}
 
     for dataset_name, dataset_path, num_classes, num_reps in dataset_info:
@@ -261,17 +341,29 @@ def main(datasets=None, seeds=None, models=None, config=None):
                     # -- 4. Train & evaluate ----------------------------------
                     model_class = getattr(new_models, model_name)
                     model = model_class((4, 16), num_classes)
+
+                    # MACs are counted on the FP32 model BEFORE fit: once
+                    # EmagerCNNQuantized swaps in INT8 ops, the Conv2d/Linear
+                    # hooks would no longer fire.
+                    first_time = model_name not in model_stats
+                    macs = compute_macs(model, (4, 16)) if first_time else None
+
                     res = model.fit(train_dl, test_dl, max_epochs=_max_epochs)
-                    # Measure params/size AFTER fit so post-training transforms
-                    # (e.g. INT8 quantization in EmagerCNNQuantized) are reflected.
-                    if model_name not in model_stats:
+
+                    # Size + latency are measured AFTER fit so the quantized
+                    # variant's INT8 state_dict and INT8 kernel speed show up.
+                    if first_time:
                         # Filter to tensors -- quantized modules add non-tensor metadata
                         # (e.g. dtype) into state_dict that breaks .numel() / .element_size().
-                        tensors   = [t for t in model.state_dict().values() if isinstance(t, torch.Tensor)]
-                        params    = sum(t.numel() for t in tensors)
-                        size_kb   = sum(t.numel() * t.element_size() for t in tensors) / 1024
-                        model_stats[model_name] = (params, size_kb)
-                        logger.info(f"    params: {params:,}  size: {size_kb:,.1f} KB")
+                        tensors    = [t for t in model.state_dict().values() if isinstance(t, torch.Tensor)]
+                        params     = sum(t.numel() for t in tensors)
+                        size_kb    = sum(t.numel() * t.element_size() for t in tensors) / 1024
+                        latency_ms = compute_latency_ms(model, (4, 16))
+                        model_stats[model_name] = (params, size_kb, macs, latency_ms)
+                        logger.info(
+                            f"    params: {params:,}  size: {size_kb:,.1f} KB  "
+                            f"MACs: {_fmt_macs(macs)}  latency: {latency_ms:.2f} ms"
+                        )
                     acc = res[0]["test_acc"]
                     run_accs.append(acc)
                     logger.info(f"    seed={seed}  held_out_rep={fold['held_out']}  acc={acc:.1%}")

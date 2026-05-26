@@ -37,6 +37,7 @@ MODELS_TO_TEST = [
     "EmagerCNNCircular",
     "EmagerCNNRingStrided",
     # "EmagerCNNGAP",
+    "EmagerCNNQuantized",
 ]
 
 WINDOW_SIZE      = 200
@@ -260,13 +261,17 @@ def main(datasets=None, seeds=None, models=None, config=None):
                     # -- 4. Train & evaluate ----------------------------------
                     model_class = getattr(new_models, model_name)
                     model = model_class((4, 16), num_classes)
+                    res = model.fit(train_dl, test_dl, max_epochs=_max_epochs)
+                    # Measure params/size AFTER fit so post-training transforms
+                    # (e.g. INT8 quantization in EmagerCNNQuantized) are reflected.
                     if model_name not in model_stats:
-                        params    = sum(p.numel() for p in model.parameters())
-                        size_kb   = sum(t.numel() * t.element_size() for t in model.state_dict().values()) / 1024
+                        # Filter to tensors -- quantized modules add non-tensor metadata
+                        # (e.g. dtype) into state_dict that breaks .numel() / .element_size().
+                        tensors   = [t for t in model.state_dict().values() if isinstance(t, torch.Tensor)]
+                        params    = sum(t.numel() for t in tensors)
+                        size_kb   = sum(t.numel() * t.element_size() for t in tensors) / 1024
                         model_stats[model_name] = (params, size_kb)
                         logger.info(f"    params: {params:,}  size: {size_kb:,.1f} KB")
-
-                    res = model.fit(train_dl, test_dl, max_epochs=_max_epochs)
                     acc = res[0]["test_acc"]
                     run_accs.append(acc)
                     logger.info(f"    seed={seed}  held_out_rep={fold['held_out']}  acc={acc:.1%}")

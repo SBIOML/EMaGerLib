@@ -373,6 +373,166 @@ class EmagerCNNRingStrided(_EmagerBase):
         self.criterion  = nn.CrossEntropyLoss()
 
 
+class EmagerCNNQuantized(_EmagerBase):
+    """
+    Identical architecture to EmagerCNNBase. After FP32 training completes,
+    applies post-training INT8 quantization (PTQ) via torch.ao.quantization:
+    Conv+BN+ReLU triplets are fused, then weights and activations are quantized
+    to INT8 using a calibration pass over the training data.
+
+    Use this variant to isolate the impact of *optimization* (weight precision)
+    as a separate axis from *architecture*. Compare against EmagerCNNBase to see
+    the size/accuracy tradeoff in a like-for-like setting.
+
+    Notes:
+      - Backend: fbgemm (x86 dev machine). For ARM deployment (e.g. Cortex-M)
+        swap to qnnpack by setting cls.qbackend = "qnnpack" before fit().
+      - state_dict size drops ~4x after quantization (FP32 -> INT8 weights).
+        Param count via model.parameters() under-reports because quantized
+        layer weights are stored as packed _packed_params, not nn.Parameter.
+      - The model is moved to CPU before quantization and stays there;
+        accuracy is reported from a manual CPU eval loop, not Lightning.test.
+
+    input (B, H*W)
+      |- BN1d                                    (kept FP32 -- raw signal range)
+      |- reshape (B, 1, H, W)
+      |- QuantStub                               (FP32 -> INT8 from here)
+      |- [Conv2d(1 -> 32, 3x3) + BN2d + ReLU]    fused
+      |- [Conv2d(32 -> 32, 3x3) + BN2d + ReLU]   fused
+      |- [Conv2d(32 -> 32, 5x5) + BN2d + ReLU]   fused
+      |- Flatten
+      |- Linear(32*H*W -> 256)
+      |- Dropout(0.5)
+      |- [BN1d + ReLU]                           fused
+      |- Linear(256 -> C)
+      |- DeQuantStub                             (INT8 -> FP32 out)
+    """
+    qbackend = "fbgemm"  # "qnnpack" for ARM (e.g. STM32 / Cortex-M) deployment
+    _calib_batches = 10
+
+    def __init__(self, input_shape: tuple, num_classes: int, lr: float = 1e-3):
+        super().__init__()
+        self.save_hyperparameters()
+        n = int(np.prod(input_shape))
+
+        self.normalize  = nn.BatchNorm1d(n)
+        self.features   = nn.Sequential(
+            nn.Conv2d(1,  32, kernel_size=3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=False),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=False),
+            nn.Conv2d(32, 32, kernel_size=5, padding=2), nn.BatchNorm2d(32), nn.ReLU(inplace=False),
+            nn.Flatten(),
+        )
+        self.classifier = nn.Sequential(
+            nn.Linear(32 * n, 256), nn.Dropout(0.5), nn.BatchNorm1d(256), nn.ReLU(inplace=False),
+            nn.Linear(256, num_classes),
+        )
+        self.criterion  = nn.CrossEntropyLoss()
+
+        self.quant      = torch.ao.quantization.QuantStub()
+        self.dequant    = torch.ao.quantization.DeQuantStub()
+        self._quantized = False
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.normalize(x.view(x.size(0), -1))
+        x = x.view(x.size(0), 1, *self.hparams.input_shape)
+        x = self.quant(x)
+        x = self.classifier(self.features(x))
+        x = self.dequant(x)
+        return x
+
+    def fit(self, train_dataloader, test_dataloader=None, max_epochs: int = 10):
+        # Stage 1: FP32 training (same trainer setup as base)
+        trainer = L.Trainer(
+            max_epochs=max_epochs,
+            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
+        )
+        trainer.fit(self, train_dataloader)
+
+        # Stage 2: post-training INT8 quantization on CPU
+        self._apply_ptq(train_dataloader)
+
+        # Stage 3: evaluate the quantized model on CPU
+        if test_dataloader is not None:
+            return self._test_quantized(test_dataloader)
+
+    def _apply_ptq(self, calib_loader):
+        import torch.ao.quantization as taq
+
+        self.eval()
+        self.cpu()
+
+        # Fold the classifier's BatchNorm1d into its preceding Linear, then
+        # drop the BN1d module from the Sequential. PyTorch's QuantizedCPU backend
+        # has no kernel for nn.BatchNorm1d, so leaving it in place fails after
+        # convert(). Folding is exact under eval mode (BN uses running stats only).
+        self._fold_classifier_bn()
+
+        # Fuse Conv+BN+ReLU triplets in the conv stack.
+        taq.fuse_modules(
+            self.features,
+            [["0", "1", "2"], ["3", "4", "5"], ["6", "7", "8"]],
+            inplace=True,
+        )
+
+        self.qconfig = taq.get_default_qconfig(self.qbackend)
+        taq.prepare(self, inplace=True)
+
+        # Calibration: feed a handful of train batches through observers
+        with torch.no_grad():
+            for i, (x, _) in enumerate(calib_loader):
+                self(x.cpu())
+                if i + 1 >= self._calib_batches:
+                    break
+
+        taq.convert(self, inplace=True)
+        self._quantized = True
+
+    def _fold_classifier_bn(self):
+        """
+        Fold the classifier's BatchNorm1d into the preceding Linear, then rebuild
+        the Sequential without the BN1d module. Valid in eval mode: BN uses running
+        stats only, which absorb exactly into the linear's weight and bias.
+
+            Before:  [Linear, Dropout, BN1d, ReLU, Linear]
+            After:   [Linear_folded, Dropout, ReLU, Linear]
+
+        Dropout stays in place because it is a no-op in eval mode and passes
+        quantized tensors through unchanged.
+        """
+        lin0    = self.classifier[0]   # Linear(32*n, 256)
+        dropout = self.classifier[1]
+        bn1d    = self.classifier[2]   # BatchNorm1d(256)
+        relu    = self.classifier[3]
+        lin1    = self.classifier[4]   # Linear(256, num_classes)
+
+        scale = bn1d.weight / torch.sqrt(bn1d.running_var + bn1d.eps)
+        shift = bn1d.bias - bn1d.running_mean * scale
+
+        folded = nn.Linear(lin0.in_features, lin0.out_features, bias=True)
+        bias0  = lin0.bias.data if lin0.bias is not None else torch.zeros(lin0.out_features)
+        folded.weight.data = lin0.weight.data * scale.unsqueeze(1)
+        folded.bias.data   = bias0 * scale + shift
+
+        self.classifier = nn.Sequential(folded, dropout, relu, lin1)
+
+    def _test_quantized(self, test_dl):
+        self.eval()
+        correct, total, loss_sum = 0, 0, 0.0
+        with torch.no_grad():
+            for x, y in test_dl:
+                logits = self(x.cpu())
+                loss   = self.criterion(logits, y.cpu())
+                correct  += (logits.argmax(dim=1) == y.cpu()).sum().item()
+                total    += y.size(0)
+                loss_sum += loss.item() * y.size(0)
+        return [{"test_acc": correct / total, "test_loss": loss_sum / total}]
+
+    def convert_input(self, x) -> torch.Tensor:
+        if not isinstance(x, torch.Tensor):
+            x = torch.from_numpy(x)
+        return x.float().cpu() if self._quantized else super().convert_input(x)
+
+
 class EmagerCNNGAP(_EmagerBase):
     """
     Global Average Pooling replaces the large FC hidden layer entirely.

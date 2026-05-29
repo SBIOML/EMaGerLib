@@ -2,6 +2,9 @@
 TODO.txt
 *.log
 
+# Benchmark run outputs: ignore the per-run JSON dumps, keep RESULTS_LOG.md tracked
+examples/training/benchmark_results/*.json
+
 # Model weights (host externally, do not commit)
 *.pth
 /models/

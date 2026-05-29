@@ -373,7 +373,7 @@ class EmagerCNNRingStrided(_EmagerBase):
         self.criterion  = nn.CrossEntropyLoss()
 
 
-class EmagerCNNQuantized(_EmagerBase):
+class EmagerCNNQuantizedPTQ(_EmagerBase):
     """
     Identical architecture to EmagerCNNBase. After FP32 training completes,
     applies post-training INT8 quantization (PTQ) via torch.ao.quantization:
@@ -531,6 +531,88 @@ class EmagerCNNQuantized(_EmagerBase):
         if not isinstance(x, torch.Tensor):
             x = torch.from_numpy(x)
         return x.float().cpu() if self._quantized else super().convert_input(x)
+
+
+class EmagerCNNQuantizedQAT(EmagerCNNQuantizedPTQ):
+    """
+    Quantization-Aware Training (QAT) counterpart to EmagerCNNQuantizedPTQ (PTQ).
+
+    Same architecture as EmagerCNNBase, but the INT8 quantization error is
+    *simulated during training* via fake-quant observers, so the weights learn
+    to be robust to it. This usually recovers accuracy that post-training
+    quantization (PTQ) leaves on the table — the gap is largest on
+    quantization-sensitive models / low bit-widths.
+
+    Inherits architecture, forward, the BN-fold helper, the CPU eval loop and
+    convert_input from EmagerCNNQuantizedPTQ. Only the training pipeline differs:
+    PTQ quantizes *after* training, QAT fine-tunes *with* fake quant.
+
+    Pipeline (inside fit()):
+      1. FP32 training to convergence — a warm start, and it populates the BN
+         running stats the classifier fold relies on.
+      2. Fold classifier BatchNorm1d into the preceding Linear (exact in eval
+         mode; no QuantizedCPU kernel exists for standalone BN1d).
+      3. Fuse Conv+BN+ReLU triplets with fuse_modules_qat — produces ConvBnReLU2d,
+         which keeps BN trainable through fine-tuning and folds it at convert().
+      4. prepare_qat() inserts fake-quant + observers.
+      5. Fine-tune for `qat_epochs` epochs on CPU with fake quant active.
+      6. convert() to a real INT8 model, then evaluate on CPU.
+
+    Compare against EmagerCNNQuantizedPTQ for the QAT-vs-PTQ accuracy delta, and
+    against EmagerCNNBase for the FP32 reference. Backend / size / latency notes
+    are identical to EmagerCNNQuantizedPTQ.
+    """
+    qat_epochs = 5  # fine-tuning epochs after the FP32 warm start
+
+    def fit(self, train_dataloader, test_dataloader=None, max_epochs: int = 10):
+        import torch.ao.quantization as taq
+
+        # Stage 1: FP32 warm start (same trainer setup as base)
+        trainer = L.Trainer(
+            max_epochs=max_epochs,
+            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
+        )
+        trainer.fit(self, train_dataloader)
+
+        # Stage 2-4: fold classifier BN, fuse for QAT, insert fake-quant (on CPU)
+        self._prepare_qat()
+
+        # Stage 5: QAT fine-tuning with fake quant active. Forced onto CPU so the
+        # fbgemm/qnnpack fake-quant + convert path is consistent on any host.
+        qat_trainer = L.Trainer(
+            max_epochs=self.qat_epochs,
+            accelerator="cpu",
+            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
+        )
+        qat_trainer.fit(self, train_dataloader)
+
+        # Stage 6: convert fake-quant modules to real INT8, then evaluate on CPU
+        self.eval()
+        taq.convert(self, inplace=True)
+        self._quantized = True
+        if test_dataloader is not None:
+            return self._test_quantized(test_dataloader)
+
+    def _prepare_qat(self):
+        import torch.ao.quantization as taq
+
+        self.eval()
+        self.cpu()
+        # Fold classifier BN1d now that the FP32 warm start has given it
+        # meaningful running stats (exact in eval mode). Reused from the PTQ class.
+        self._fold_classifier_bn()
+
+        # QAT-specific fusion: fuse_modules_qat keeps BN inside ConvBnReLU2d so it
+        # stays trainable during fine-tuning (plain fuse_modules would fold it away
+        # immediately, which is correct for PTQ but defeats QAT).
+        self.train()
+        taq.fuse_modules_qat(
+            self.features,
+            [["0", "1", "2"], ["3", "4", "5"], ["6", "7", "8"]],
+            inplace=True,
+        )
+        self.qconfig = taq.get_default_qat_qconfig(self.qbackend)
+        taq.prepare_qat(self, inplace=True)
 
 
 class EmagerCNNGAP(_EmagerBase):

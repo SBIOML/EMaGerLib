@@ -220,7 +220,7 @@ Also input-size agnostic — works on any spatial dimension without recomputing 
 
 ---
 
-### EmagerCNNQuantized
+### EmagerCNNQuantizedPTQ
 
 Optimization variant — **architecture is identical to `EmagerCNNBase`**, only the
 weight representation changes. Use this row to isolate the effect of post-training
@@ -249,7 +249,7 @@ input → BN1d (FP32, raw signal range)
   → DeQuantStub (→ FP32 out)
 ```
 
-Backend defaults to `fbgemm` (x86 host); set `EmagerCNNQuantized.qbackend = "qnnpack"`
+Backend defaults to `fbgemm` (x86 host); set `EmagerCNNQuantizedPTQ.qbackend = "qnnpack"`
 for ARM (e.g. Cortex-M) deployment.
 
 Notes:
@@ -261,11 +261,15 @@ Notes:
   weight precision (INT8 ≈ 4× smaller than FP32) and kernel speed (fbgemm /
   qnnpack INT8 paths). Measure latency, not FLOPs, to see the speedup.
 - After `convert()`, quantized weights are stored as packed `_packed_params`
-  rather than `nn.Parameter`. The benchmark counts params from `state_dict`
-  values (filtered to tensors) so the number is meaningful for both FP32 and
-  quantized models.
+  rather than `nn.Parameter`, so counting params on the post-`fit()` model
+  under-reports — it misses the dominant `Linear(2048→256)` weight and makes
+  this variant look *smaller* than Base despite an identical architecture. The
+  benchmark therefore counts params from `model.parameters()` on the **FP32
+  model before `fit()`** (same pattern as MACs), so the reported count reflects
+  the true architecture and matches `EmagerCNNBase`.
 
-**~35k params — ~0.035 MB** (INT8 weights; BN1d folded out of the classifier)
+**~562k params — ~0.035 MB** (params reflect the FP32 architecture, identical to
+Base; the on-disk size is the post-quantization INT8 state_dict)
 
 ---
 
@@ -282,7 +286,7 @@ Notes:
 | `EmagerCNNWide` | 64-ch convs, bigger FC | 1.17 M | 4.7 MB | 93.6% |
 | `EmagerCNNStrided` | Stride=2 collapses spatial | 44 K | 0.18 MB | 93.1% |
 | `EmagerCNNRingStrided` | Strided + ring padding on W only | 44 K | 0.18 MB | TBD |
-| `EmagerCNNQuantized` | INT8 PTQ on Base architecture | 35 K | 0.035 MB | 98.2%‡ |
+| `EmagerCNNQuantizedPTQ` | INT8 PTQ on Base architecture | 562 K | 0.035 MB | 98.2%‡ |
 | `EmagerCNNGAP` | Global avg pool, no FC | 36 K | 0.14 MB | 90.4% |
 
 *Leave-one-out cross-validation across reps, averaged over seeds `[42, 123, 456]` on 3 datasets
@@ -293,7 +297,7 @@ Notes:
 H-zero) instead of PyTorch's both-axes `padding_mode='circular'`. The 93.7% number is
 from the prior both-axes version and needs to be re-measured.
 
-‡`EmagerCNNQuantized` was added after the main benchmark run. The 98.2% number is from a
+‡`EmagerCNNQuantizedPTQ` was added after the main benchmark run. The 98.2% number is from a
 single-dataset (`Test_EM_C7_R5`) single-seed (`42`) run only — not directly comparable to
 the multi-dataset overall column for the other models. On the same single-dataset/seed run,
 `EmagerCNNBase` scored 98.3%, so the quantization-induced accuracy loss is ~0.1 pp. Pending
@@ -310,7 +314,7 @@ a full multi-dataset / multi-seed re-run for a fair overall number.
 | EmagerCNNWide     | 98.7% ± 1.5% | 92.3% ± 3.4% | 89.8% ± 8.7%  | 93.6% |
 | EmagerCNNStrided  | 98.4% ± 1.6% | 90.4% ± 5.5% | 90.4% ± 7.2%  | 93.1% |
 | EmagerCNNRingStrided | TBD | TBD | TBD | TBD |
-| EmagerCNNQuantized‡ | 98.2% ± 1.5% | TBD | TBD | TBD |
+| EmagerCNNQuantizedPTQ‡ | 98.2% ± 1.5% | TBD | TBD | TBD |
 | EmagerCNNGAP      | 93.9% ± 10.2% | 90.7% ± 6.0% | 86.6% ± 9.2% | 90.4% |
 
 ### Takeaways
@@ -324,15 +328,15 @@ a full multi-dataset / multi-seed re-run for a fair overall number.
 > **EmagerCNNCircular** held up under LOO (−0.4% vs Base) on the prior both-axes implementation. Since then the padding was rewritten to wrap W only (the physical electrode ring); re-benchmark pending. **EmagerCNNRingStrided** stacks the same W-only ring padding on top of `EmagerCNNStrided` and is also pending its first benchmark.
 > **EmagerCNNGAP** is the only clear loser: −3.7% vs Base, and a large std on `Test_EM_C7_R5` (±10.2%) — removing the FC hidden layer costs too much capacity.
 > Variance grows on `_02` and `_03` (std up to ±9% on some models) — these splits are noticeably harder than the original `Test_EM_C7_R5`.
-> **EmagerCNNQuantized** (preliminary, 1 dataset / 1 seed) drops ~0.1 pp vs Base on the same split while shrinking the on-disk model ~62× (2.2 MB → 35 KB). This is the first variant that targets *weight precision* rather than architecture, and the win composes with the architectural variants — `EmagerCNNStrided` + INT8 would land around ~45 KB if combined.
+> **EmagerCNNQuantizedPTQ** (preliminary, 1 dataset / 1 seed) drops ~0.1 pp vs Base on the same split while shrinking the on-disk model ~62× (2.2 MB → 35 KB). This is the first variant that targets *weight precision* rather than architecture, and the win composes with the architectural variants — `EmagerCNNStrided` + INT8 would land around ~45 KB if combined.
 
 ### Benchmark harness columns
 
 `train_cnn_benchmark.py` now reports four post-training columns per model:
 
-- **Params** — count of tensors in `state_dict` (filtered to actual tensors; quantized models store weights in `_packed_params`, which is still picked up by this iteration).
+- **Params** — total `model.parameters()` count, taken on the **FP32 model before `fit()`**. For `EmagerCNNQuantizedPTQ` this matters: after PTQ the weights move into packed `_packed_params` (not `nn.Parameter`), so a post-`fit()` count would under-report and wrongly show fewer params than Base for an identical architecture. Counting pre-`fit()` reports the true architectural size.
 - **Size (KB)** — sum of `numel × element_size` over the same tensors. Drops 4× for INT8 vs FP32 weights.
-- **MACs** — multiply-accumulates per single forward pass, counted on the **FP32 model before `fit()`** (Conv2d + Linear only). Identical for `EmagerCNNQuantized` and `EmagerCNNBase` by construction — quantization does not change op count, only precision.
+- **MACs** — multiply-accumulates per single forward pass, counted on the **FP32 model before `fit()`** (Conv2d + Linear only). Identical for `EmagerCNNQuantizedPTQ` and `EmagerCNNBase` by construction — quantization does not change op count, only precision.
 - **Lat (ms)** — median single-sample inference time via `torch.utils.benchmark.Timer`, 1 thread, batch=1, host-CPU x86 (fbgemm for INT8). Reflects the kernel-speed side of the quantization win that MACs cannot see. Absolute values do not translate to ARM deployment — relative ordering does.
 
 ---

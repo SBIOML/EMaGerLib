@@ -80,8 +80,11 @@ Key details:
 
 ## `new_emager_cnn.py` — Experimental variants
 
-All variants share the Lightning + LibEMG boilerplate via `_EmagerBase`.
-Only `__init__` (the architecture) differs between them.
+All variants share the Lightning + LibEMG boilerplate via `_EmagerBase`. The
+**architecture variants** change only `__init__` (the layers). The **quantization
+variants** also override the training pipeline (`fit`) to fuse, quantize to INT8
+and evaluate on CPU, and form a small subclass chain:
+`EmagerCNNQuantizedPTQ` → `EmagerCNNQuantizedQAT` → `EmagerCNNRingStridedQAT`.
 
 The dominant cost in most models is the **FC hidden layer** (`Linear(32·H·W, 256)`).
 For the default 4×16 input that's `Linear(2048, 256)` — ~525k of the ~562k total params.
@@ -268,8 +271,59 @@ Notes:
   model before `fit()`** (same pattern as MACs), so the reported count reflects
   the true architecture and matches `EmagerCNNBase`.
 
-**~562k params — ~0.035 MB** (params reflect the FP32 architecture, identical to
-Base; the on-disk size is the post-quantization INT8 state_dict)
+**~562k params — ~0.55 MB INT8** (params reflect the FP32 architecture, identical
+to Base; ~4× smaller on disk than Base's 2.2 MB as weights drop FP32 → INT8 — see
+the **size caveat** under the summary table)
+
+---
+
+### EmagerCNNQuantizedQAT
+
+INT8 **quantization-aware training (QAT)** — same `EmagerCNNBase` architecture as
+`EmagerCNNQuantizedPTQ`, but the quantization error is simulated *during* training
+with fake-quant observers so the weights learn to be robust to it. Subclasses
+`EmagerCNNQuantizedPTQ` and reuses its scaffold; only the training pipeline differs.
+
+Pipeline (inside `fit()`):
+1. FP32 warm start — converges and populates the BN running stats the fold relies on
+2. Fold classifier `BatchNorm1d` into the preceding `Linear` (exact in eval mode)
+3. Fuse `Conv+BN+ReLU` with `fuse_modules_qat` → `ConvBnReLU2d` (BN stays trainable)
+4. `prepare_qat()` inserts fake-quant + observers
+5. Fine-tune `qat_epochs` (default 5) on CPU with fake quant active
+6. `convert()` → real INT8, then evaluate on CPU
+
+PTQ quantizes *after* training; QAT fine-tunes *with* fake quant. QAT usually
+recovers accuracy that PTQ leaves on the table — compare the two rows to measure it.
+
+**~562k params — ~0.55 MB INT8** (identical architecture and size to PTQ; total
+wall time is higher — it runs an FP32 warm start *plus* `qat_epochs` of fine-tuning)
+
+---
+
+### EmagerCNNRingStridedQAT
+
+All three optimization axes stacked: **strided** spatial collapse + **column-only
+ring padding** + **INT8 QAT**. It is the `EmagerCNNRingStrided` architecture trained
+with the `EmagerCNNQuantizedQAT` pipeline. Subclasses `EmagerCNNQuantizedQAT`;
+`__init__` swaps in the RingStrided conv stack, and `_fuse_groups` is overridden
+because `RingPad2d` sits between the conv triplets (Conv+BN+ReLU at indices 1-3,
+5-7, 9-11 instead of 0-2, 3-5, 6-8).
+
+```
+input → BN1d → reshape → QuantStub
+  RingPad(w=1,h=1) → [Conv(1→32, 3x3, s=2) + BN + ReLU]  fused → INT8 → (2,8)
+  RingPad(w=1,h=1) → [Conv(32→32, 3x3, s=2) + BN + ReLU] fused → INT8 → (1,4)
+  RingPad(w=2,h=2) → [Conv(32→32, 5x5, s=1) + BN + ReLU] fused → INT8 → (1,4)
+  Flatten(128) → Linear_folded(128→64) → ReLU → Linear(64→C) → DeQuantStub
+```
+
+Required a quantization-safe `RingPad2d`: its W-circular wrap now uses `torch.cat`
+of edge slices instead of `F.pad(mode="circular")`, which raises on quantized int8
+tensors. The two are identical for FP32, so `EmagerCNNCircular` /
+`EmagerCNNRingStrided` are unaffected.
+
+**~44k params — ~0.057 MB INT8** (RingStrided's ~12× param cut combined with INT8 —
+the smallest deployable variant in the file)
 
 ---
 
@@ -286,7 +340,9 @@ Base; the on-disk size is the post-quantization INT8 state_dict)
 | `EmagerCNNWide` | 64-ch convs, bigger FC | 1.17 M | 4.7 MB | 93.6% |
 | `EmagerCNNStrided` | Stride=2 collapses spatial | 44 K | 0.18 MB | 93.1% |
 | `EmagerCNNRingStrided` | Strided + ring padding on W only | 44 K | 0.18 MB | TBD |
-| `EmagerCNNQuantizedPTQ` | INT8 PTQ on Base architecture | 562 K | 0.035 MB | 98.2%‡ |
+| `EmagerCNNQuantizedPTQ` | INT8 PTQ on Base architecture | 562 K | 0.55 MB§ | 98.2%‡ |
+| `EmagerCNNQuantizedQAT` | INT8 QAT on Base architecture | 562 K | 0.55 MB§ | TBD |
+| `EmagerCNNRingStridedQAT` | RingStrided arch + INT8 QAT | 44 K | 0.057 MB§ | TBD |
 | `EmagerCNNGAP` | Global avg pool, no FC | 36 K | 0.14 MB | 90.4% |
 
 *Leave-one-out cross-validation across reps, averaged over seeds `[42, 123, 456]` on 3 datasets
@@ -301,7 +357,17 @@ from the prior both-axes version and needs to be re-measured.
 single-dataset (`Test_EM_C7_R5`) single-seed (`42`) run only — not directly comparable to
 the multi-dataset overall column for the other models. On the same single-dataset/seed run,
 `EmagerCNNBase` scored 98.3%, so the quantization-induced accuracy loss is ~0.1 pp. Pending
-a full multi-dataset / multi-seed re-run for a fair overall number.
+a full multi-dataset / multi-seed re-run for a fair overall number. The two QAT variants
+(`EmagerCNNQuantizedQAT`, `EmagerCNNRingStridedQAT`) have only been smoke-tested so far —
+accuracy is TBD pending a real run.
+
+§ **Quantized size caveat.** File sizes for the INT8 variants are the *real serialized
+`state_dict` size* (`torch.save`), ≈ ¼ of the FP32 equivalent. An earlier version of the
+benchmark summed `numel × element_size` over `state_dict` tensors, which silently dropped
+the packed INT8 weights (stored as `_packed_params`, not plain tensors) and reported a
+near-constant ~35 KB for *every* quantized model regardless of architecture. That bug is
+fixed — the harness now measures the serialized size — so 0.55 MB (Base arch) and 0.057 MB
+(RingStrided arch) are the true on-disk footprints, not the old ~35 KB artifact.
 
 ### Per-dataset breakdown (LOO, mean ± std over reps × seeds)
 
@@ -315,6 +381,8 @@ a full multi-dataset / multi-seed re-run for a fair overall number.
 | EmagerCNNStrided  | 98.4% ± 1.6% | 90.4% ± 5.5% | 90.4% ± 7.2%  | 93.1% |
 | EmagerCNNRingStrided | TBD | TBD | TBD | TBD |
 | EmagerCNNQuantizedPTQ‡ | 98.2% ± 1.5% | TBD | TBD | TBD |
+| EmagerCNNQuantizedQAT‡ | TBD | TBD | TBD | TBD |
+| EmagerCNNRingStridedQAT‡ | TBD | TBD | TBD | TBD |
 | EmagerCNNGAP      | 93.9% ± 10.2% | 90.7% ± 6.0% | 86.6% ± 9.2% | 90.4% |
 
 ### Takeaways
@@ -328,14 +396,14 @@ a full multi-dataset / multi-seed re-run for a fair overall number.
 > **EmagerCNNCircular** held up under LOO (−0.4% vs Base) on the prior both-axes implementation. Since then the padding was rewritten to wrap W only (the physical electrode ring); re-benchmark pending. **EmagerCNNRingStrided** stacks the same W-only ring padding on top of `EmagerCNNStrided` and is also pending its first benchmark.
 > **EmagerCNNGAP** is the only clear loser: −3.7% vs Base, and a large std on `Test_EM_C7_R5` (±10.2%) — removing the FC hidden layer costs too much capacity.
 > Variance grows on `_02` and `_03` (std up to ±9% on some models) — these splits are noticeably harder than the original `Test_EM_C7_R5`.
-> **EmagerCNNQuantizedPTQ** (preliminary, 1 dataset / 1 seed) drops ~0.1 pp vs Base on the same split while shrinking the on-disk model ~62× (2.2 MB → 35 KB). This is the first variant that targets *weight precision* rather than architecture, and the win composes with the architectural variants — `EmagerCNNStrided` + INT8 would land around ~45 KB if combined.
+> **Quantization (PTQ / QAT).** `EmagerCNNQuantizedPTQ` (preliminary, 1 dataset / 1 seed) drops ~0.1 pp vs Base on the same split while shrinking the model ~4× (2.2 MB → ~0.55 MB INT8). These are the variants that target *weight precision* rather than architecture, and the win composes with the architectural ones: `EmagerCNNRingStridedQAT` stacks INT8 QAT on top of the RingStrided collapse for the smallest deployable model (~44 K params, ~0.057 MB). `EmagerCNNQuantizedQAT` exists to measure how much accuracy QAT recovers over PTQ at the same size. All three INT8 variants are pending a full multi-dataset / multi-seed run.
 
 ### Benchmark harness columns
 
 `train_cnn_benchmark.py` now reports four post-training columns per model:
 
 - **Params** — total `model.parameters()` count, taken on the **FP32 model before `fit()`**. For `EmagerCNNQuantizedPTQ` this matters: after PTQ the weights move into packed `_packed_params` (not `nn.Parameter`), so a post-`fit()` count would under-report and wrongly show fewer params than Base for an identical architecture. Counting pre-`fit()` reports the true architectural size.
-- **Size (KB)** — sum of `numel × element_size` over the same tensors. Drops 4× for INT8 vs FP32 weights.
+- **Size (KB)** — real serialized size of the `state_dict` via `torch.save`. Drops ~4× for INT8 vs FP32 (weights go FP32 → INT8). Previously this summed `numel × element_size` over `state_dict` tensors, which dropped the packed INT8 weights and reported a bogus near-constant ~35 KB for every quantized model — see the **§ size caveat** above.
 - **MACs** — multiply-accumulates per single forward pass, counted on the **FP32 model before `fit()`** (Conv2d + Linear only). Identical for `EmagerCNNQuantizedPTQ` and `EmagerCNNBase` by construction — quantization does not change op count, only precision.
 - **Lat (ms)** — median single-sample inference time via `torch.utils.benchmark.Timer`, 1 thread, batch=1, host-CPU x86 (fbgemm for INT8). Reflects the kernel-speed side of the quantization win that MACs cannot see. Absolute values do not translate to ARM deployment — relative ordering does.
 
@@ -346,3 +414,10 @@ a full multi-dataset / multi-seed re-run for a fair overall number.
 1. Add a class to `new_emager_cnn.py` that inherits from `_EmagerBase`
 2. Only define `__init__` — write the full architecture explicitly (no abstraction)
 3. Add a row to the summary table and a section here describing what changed and why
+
+For an **INT8 variant** of a new architecture, subclass `EmagerCNNQuantizedPTQ`
+(PTQ) or `EmagerCNNQuantizedQAT` (QAT) instead: build the conv stack in `__init__`
+(ReLU `inplace=False`, plus the `QuantStub`/`DeQuantStub`) and override the
+`_fuse_groups` class attribute to point at the Conv+BN+ReLU index triplets in your
+`features` layout. `EmagerCNNRingStridedQAT` is the worked example. If the stack
+uses ring padding, rely on `RingPad2d` (its `torch.cat` wrap is quantization-safe).

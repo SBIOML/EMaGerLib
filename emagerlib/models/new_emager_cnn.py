@@ -16,7 +16,13 @@ class RingPad2d(nn.Module):
       - circular on W (electrode columns form a physical ring: col 0 is adjacent to col 15)
       - zero on H (rows do not loop)
 
-    Used by EmagerCNNCircular and EmagerCNNRingStrided. Conv2d after this layer should use padding=0.
+    Used by EmagerCNNCircular, EmagerCNNRingStrided and EmagerCNNRingStridedQAT.
+    Conv2d after this layer should use padding=0.
+
+    The W-circular wrap is done with torch.cat of edge slices rather than
+    F.pad(mode="circular"). The two are identical for FP32 (pad width < W), but
+    cat also works on quantized int8 tensors, whereas F.pad's circular mode
+    raises on quantized tensors -- which is what lets the QAT variant run.
     """
     def __init__(self, pad_w: int, pad_h: int):
         super().__init__()
@@ -25,9 +31,10 @@ class RingPad2d(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.pad_w > 0:
-            x = F.pad(x, (self.pad_w, self.pad_w, 0, 0), mode="circular")
+            p = self.pad_w
+            x = torch.cat([x[..., -p:], x, x[..., :p]], dim=-1)  # circular on W (quant-safe)
         if self.pad_h > 0:
-            x = F.pad(x, (0, 0, self.pad_h, self.pad_h), mode="constant", value=0.0)
+            x = F.pad(x, (0, 0, self.pad_h, self.pad_h), mode="constant", value=0.0)  # zero on H
         return x
 
 
@@ -409,6 +416,10 @@ class EmagerCNNQuantizedPTQ(_EmagerBase):
     """
     qbackend = "fbgemm"  # "qnnpack" for ARM (e.g. STM32 / Cortex-M) deployment
     _calib_batches = 10
+    # Conv+BN+ReLU index triplets to fuse in self.features. Matches the plain
+    # conv stack (Conv,BN,ReLU at 0-2, 3-5, 6-8). Subclasses with a different
+    # features layout (e.g. interleaved RingPad2d) override this.
+    _fuse_groups = [["0", "1", "2"], ["3", "4", "5"], ["6", "7", "8"]]
 
     def __init__(self, input_shape: tuple, num_classes: int, lr: float = 1e-3):
         super().__init__()
@@ -468,11 +479,7 @@ class EmagerCNNQuantizedPTQ(_EmagerBase):
         self._fold_classifier_bn()
 
         # Fuse Conv+BN+ReLU triplets in the conv stack.
-        taq.fuse_modules(
-            self.features,
-            [["0", "1", "2"], ["3", "4", "5"], ["6", "7", "8"]],
-            inplace=True,
-        )
+        taq.fuse_modules(self.features, self._fuse_groups, inplace=True)
 
         self.qconfig = taq.get_default_qconfig(self.qbackend)
         taq.prepare(self, inplace=True)
@@ -606,13 +613,78 @@ class EmagerCNNQuantizedQAT(EmagerCNNQuantizedPTQ):
         # stays trainable during fine-tuning (plain fuse_modules would fold it away
         # immediately, which is correct for PTQ but defeats QAT).
         self.train()
-        taq.fuse_modules_qat(
-            self.features,
-            [["0", "1", "2"], ["3", "4", "5"], ["6", "7", "8"]],
-            inplace=True,
-        )
+        taq.fuse_modules_qat(self.features, self._fuse_groups, inplace=True)
         self.qconfig = taq.get_default_qat_qconfig(self.qbackend)
         taq.prepare_qat(self, inplace=True)
+
+
+class EmagerCNNRingStridedQAT(EmagerCNNQuantizedQAT):
+    """
+    EmagerCNNRingStrided architecture trained with Quantization-Aware Training.
+
+    Stacks all three optimization axes used in this file:
+      - strided spatial collapse (EmagerCNNStrided) — flatten drops 2048 -> 128,
+        removing the dominant Linear cost
+      - column-only ring padding (EmagerCNNRingStrided) — wraps the W axis (the
+        physical electrode ring) and zero-pads H
+      - INT8 QAT (EmagerCNNQuantizedQAT) — fake-quant during fine-tuning so the
+        weights adapt to INT8 error
+
+    Reuses the entire QAT pipeline from EmagerCNNQuantizedQAT (FP32 warm start ->
+    fold classifier BN -> fuse_modules_qat -> prepare_qat -> fine-tune -> convert
+    -> CPU eval). Only two things change vs that class:
+      - __init__ builds the RingStrided conv stack (RingPad2d interleaved with
+        strided Conv2d) instead of the Base stack, plus the quant/dequant stubs.
+      - _fuse_groups points at the Conv+BN+ReLU indices in *this* features layout.
+        RingPad2d sits at indices 0/4/8, so the triplets are at 1-3, 5-7, 9-11.
+
+    RingPad2d is quantization-safe (it wraps W with torch.cat, not F.pad's
+    circular mode, which raises on quantized tensors). Compare against
+    EmagerCNNRingStrided (same arch, FP32) for the QAT accuracy/size tradeoff.
+
+    input (B, H*W)
+      |- BN1d                                   (kept FP32 -- raw signal range)
+      |- reshape (B, 1, 4, 16)
+      |- QuantStub                              (FP32 -> INT8 from here)
+      |- RingPad(w=1,h=1) -> [Conv(1 ->32, 3x3, s=2) + BN + ReLU]  fused -> (B,32,2,8)
+      |- RingPad(w=1,h=1) -> [Conv(32->32, 3x3, s=2) + BN + ReLU]  fused -> (B,32,1,4)
+      |- RingPad(w=2,h=2) -> [Conv(32->32, 5x5, s=1) + BN + ReLU]  fused -> (B,32,1,4)
+      |- Flatten -> (B, 128)
+      |- Linear(128 -> 64)
+      |- Dropout(0.5)
+      |- [BN1d + ReLU]                          (BN1d folded into Linear at convert)
+      |- Linear(64 -> C)
+      |- DeQuantStub                            (INT8 -> FP32 out)
+    """
+    # RingPad2d occupies indices 0/4/8; Conv+BN+ReLU triplets are at 1-3, 5-7, 9-11.
+    _fuse_groups = [["1", "2", "3"], ["5", "6", "7"], ["9", "10", "11"]]
+
+    def __init__(self, input_shape: tuple, num_classes: int, lr: float = 1e-3):
+        # Reuse the quantized scaffold from the parent (hparams, normalize, quant/
+        # dequant stubs, criterion, _quantized), then replace the Base conv stack
+        # and classifier with the RingStrided architecture.
+        super().__init__(input_shape, num_classes, lr)
+
+        # spatial size after two stride-2 convs (kernel=3, pad 1 each side via RingPad)
+        h = (input_shape[0] + 2 - 3) // 2 + 1
+        h = (h              + 2 - 3) // 2 + 1
+        w = (input_shape[1] + 2 - 3) // 2 + 1
+        w = (w              + 2 - 3) // 2 + 1
+        flat = 32 * h * w   # 128 for the default (4, 16) input
+
+        self.features   = nn.Sequential(
+            RingPad2d(pad_w=1, pad_h=1),
+            nn.Conv2d(1,  32, kernel_size=3, stride=2, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=False),
+            RingPad2d(pad_w=1, pad_h=1),
+            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=False),
+            RingPad2d(pad_w=2, pad_h=2),
+            nn.Conv2d(32, 32, kernel_size=5, stride=1, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=False),
+            nn.Flatten(),
+        )
+        self.classifier = nn.Sequential(
+            nn.Linear(flat, 64), nn.Dropout(0.5), nn.BatchNorm1d(64), nn.ReLU(inplace=False),
+            nn.Linear(64, num_classes),
+        )
 
 
 class EmagerCNNGAP(_EmagerBase):

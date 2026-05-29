@@ -36,7 +36,7 @@ SEEDS = [42]
 
 # Comment / uncomment to select which variants to include.
 MODELS_TO_TEST = [
-    "EmagerCNNBase",
+    # "EmagerCNNBase",
     # "EmagerCNNWide",
     # "EmagerCNNDeep",
     # "EmagerCNNLight",
@@ -46,6 +46,7 @@ MODELS_TO_TEST = [
     # "EmagerCNNGAP",
     # "EmagerCNNQuantizedPTQ",
     # "EmagerCNNQuantizedQAT",
+    "EmagerCNNRingStridedQAT",
 ]
 
 WINDOW_SIZE      = 200
@@ -564,10 +565,16 @@ def main(datasets=None, seeds=None, models=None, config=None):
                     # Size + latency are measured AFTER fit so the quantized
                     # variant's INT8 state_dict and INT8 kernel speed show up.
                     if first_time:
-                        # Filter to tensors -- quantized modules add non-tensor metadata
-                        # (e.g. dtype) into state_dict that breaks .element_size().
-                        tensors    = [t for t in model.state_dict().values() if isinstance(t, torch.Tensor)]
-                        size_kb    = sum(t.numel() * t.element_size() for t in tensors) / 1024
+                        # Real serialized size of the state_dict. Must NOT sum
+                        # numel*element_size over tensors: quantized layers store
+                        # their INT8 weights in packed _packed_params (not plain
+                        # tensors), so that sum silently drops them and reports a
+                        # near-constant ~35 KB for every quantized model regardless
+                        # of architecture. torch.save captures the packed weights.
+                        import io
+                        _buf = io.BytesIO()
+                        torch.save(model.state_dict(), _buf)
+                        size_kb    = _buf.tell() / 1024
                         latency_ms = compute_latency_ms(model, (4, 16))
                         model_stats[model_name] = (params, size_kb, macs, latency_ms)
                         logger.info(

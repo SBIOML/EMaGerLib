@@ -33,7 +33,7 @@ A comprehensive toolbox for working with the EMaGer v1 and v3 EMG acquisition de
 
 ## Key Features
 
-- **Real-time Gesture Recognition**: Advanced CNN-based models with quantization support for efficient inference
+- **Real-time Gesture Recognition**: Advanced CNN-based models with INT8 quantization for efficient inference and experimental few-shot prototypical models for on-device per-session calibration
 - **Prosthetic Hand Control**: Native support for Psyonic hands via direct serial or Teensy-based UART control
 - **Data Collection & Training**: Screen-guided training sessions with configurable gesture sets
 - **Visualization Tools**: Real-time 64-channel EMG visualization and monitoring
@@ -360,6 +360,7 @@ Comprehensive documentation is available in the `docs/` directory:
 - [Configuration Guide](docs/CONFIGURATION.md) - Complete configuration system documentation
 - [CLI Guide](docs/CLI.md) - Command-line arguments and usage examples
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Installation, hardware, development, and solutions to common problems
+- [Model Variants](emagerlib/models/models.md) - Architecture, INT8 quantization, and few-shot prototypical model variants (experimental), with benchmark results
 
 ## Development Workflows
 

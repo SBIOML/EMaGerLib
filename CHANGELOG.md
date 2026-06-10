@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Few-shot prototypical models in `emagerlib/models/new_emager_cnn.py` (experimental): `EmagerCNNProtoEpisodic` (episodic Prototypical Network training) and `EmagerCNNProtoCE` (cross-entropy pretrained embedding), sharing a `_EmagerProtoBase`. Classification is by distance to class prototypes *computed* from a support set rather than a learned classifier, modelling an offline-train → on-device few-shot-calibration deployment flow. `fit()` reports accuracy both before (generic prototypes) and after (5-shot calibration) on a held-out rep. Documented in [`models.md`](emagerlib/models/models.md#few-shot-prototypical-models).
+
+### Changed
+- Reordered `new_emager_cnn.py` so `EmagerCNNGAP` sits with the other architecture variants (after `EmagerCNNLight`), keeping all prototype-related code contiguous at the end of the file.
+
 ## [1.2.1] - 2026-05-18
 
 ### Added

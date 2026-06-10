@@ -123,3 +123,34 @@ Most recent runs are appended below.
 | Model | Test_EM_C7_R5 | Overall | Params | Size (KB) | MACs | Lat (ms) |
 |---|---|---|---|---|---|---|
 | EmagerCNNRingStridedQAT | 98.8% ± 0.8% | 98.8% | 44,359 | 35.7 | 152.5K | 1.15 |
+
+## 2026-05-29 00:25:23
+
+- **Datasets** (leave-one-out across reps):
+    - `Test_EM_C7_R5` — 7 classes, 5 reps · ~5,974 datapoints/rep (~3.0s @ 2000 Hz)
+- **Seeds:** [42]
+- **Epochs:** 10  |  **Window:** 200/10  |  **Sampling:** 2000  |  **Batch:** 64/256
+- **Fits:** 5 total  ·  30.2s avg/fit (incl. data load)
+- **Config file:** (constants in script)
+- **Host:** cpu · torch 2.10.0+cpu · py 3.12.3 · Windows-11-10.0.26200-SP0
+- **Elapsed:** 2m 30s
+
+| Model | Test_EM_C7_R5 | Overall | Params | Size (KB) | MACs | Lat (ms) |
+|---|---|---|---|---|---|---|
+| EmagerCNNStrided | 98.4% ± 1.7% | 98.4% | 44,359 | 185.7 | 152.5K | 0.40 |
+
+## 2026-06-04 13:46:09
+
+- **Datasets** (leave-one-out across reps):
+    - `Test_EM_C7_R5` — 7 classes, 5 reps · ~5,974 datapoints/rep (~3.0s @ 2000 Hz)
+- **Seeds:** [42]
+- **Epochs:** 10  |  **Window:** 200/10  |  **Sampling:** 2000  |  **Batch:** 64/256
+- **Fits:** 10 total  ·  62.1s avg/fit (incl. data load)
+- **Config file:** (constants in script)
+- **Host:** cpu · torch 2.10.0+cpu · py 3.12.3 · Windows-11-10.0.26200-SP0
+- **Elapsed:** 10m 21s
+
+| Model | Test_EM_C7_R5 | Overall | Params | Size (KB) | MACs | Lat (ms) |
+|---|---|---|---|---|---|---|
+| EmagerCNNProtoCE | 99.5% ± 0.4% | 99.5% | 167,239 | 665.3 | 2.38M | 0.67 |
+| EmagerCNNProtoEpisodic | 99.4% ± 0.5% | 99.4% | 166,784 | 665.3 | 2.38M | 0.67 |

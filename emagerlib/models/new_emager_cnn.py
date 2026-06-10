@@ -1,9 +1,13 @@
+import logging
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping
+
+logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
@@ -239,6 +243,39 @@ class EmagerCNNLight(_EmagerBase):
             nn.Linear(16 * n, 128), nn.Dropout(0.5), nn.BatchNorm1d(128), nn.ReLU(inplace=True),
             nn.Linear(128, num_classes),
         )
+        self.criterion  = nn.CrossEntropyLoss()
+
+
+class EmagerCNNGAP(_EmagerBase):
+    """
+    Global Average Pooling replaces the large FC hidden layer entirely.
+    After the conv stack, each of the 32 feature maps is averaged to a single value,
+    giving a 32-dim vector fed directly to the output layer.
+    Removes ~525k parameters (the dominant cost in Base) with no spatial flattening overhead.
+
+    input (B, H*W)
+      └─ BN1d
+      └─ reshape (B, 1, H, W)
+      └─ Conv2d(1  -> 32, 3x3) + BN2d + ReLU
+      └─ Conv2d(32 -> 32, 3x3) + BN2d + ReLU
+      └─ Conv2d(32 -> 32, 5x5) + BN2d + ReLU
+      └─ AdaptiveAvgPool2d(1)  →  (B, 32, 1, 1)
+      └─ Flatten               →  (B, 32)
+      └─ Linear(32 -> C)       ← no hidden FC layer at all
+    """
+    def __init__(self, input_shape: tuple, num_classes: int, lr: float = 1e-3):
+        super().__init__()
+        self.save_hyperparameters()
+
+        self.normalize  = nn.BatchNorm1d(int(np.prod(input_shape)))
+        self.features   = nn.Sequential(
+            nn.Conv2d(1,  32, kernel_size=3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
+            nn.Conv2d(32, 32, kernel_size=5, padding=2), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+        )
+        self.classifier = nn.Linear(32, num_classes)
         self.criterion  = nn.CrossEntropyLoss()
 
 
@@ -687,12 +724,41 @@ class EmagerCNNRingStridedQAT(EmagerCNNQuantizedQAT):
         )
 
 
-class EmagerCNNGAP(_EmagerBase):
+# ==============================================================================
+#  Few-shot prototypical models
+#  Prototypes are COMPUTED as the mean embedding of a support set (gradient-free),
+#  not learned by gradient. Models the deployment flow: train the embedding
+#  offline, then calibrate on device from a few examples per gesture.
+# ==============================================================================
+
+class _EmagerProtoBase(_EmagerBase):
     """
-    Global Average Pooling replaces the large FC hidden layer entirely.
-    After the conv stack, each of the 32 feature maps is averaged to a single value,
-    giving a 32-dim vector fed directly to the output layer.
-    Removes ~525k parameters (the dominant cost in Base) with no spatial flattening overhead.
+    Few-shot prototypical classifier base (abstract — do not register directly).
+
+    The conv stack produces a D-dim embedding; classification is by distance to
+    one prototype per class, where each prototype is the MEAN embedding of a
+    support set (computed, not learned). This is the Prototypical Networks
+    inference rule (Snell et al. 2017) with prototypes obtained from a support
+    set rather than a learnable nn.Parameter.
+
+    Deployment flow modeled here:
+      - offline (server)  : train the embedding f_θ on the training reps.
+                            *How* f_θ is trained is the only thing subclasses
+                            change (episodic vs cross-entropy pretrain).
+      - on device         : the user records `n_shots` examples / gesture →
+                            prototypes = mean of their embeddings. No gradient;
+                            this is the "few-shot finetuning".
+      - inference         : nearest prototype (softmax over -‖e - p_c‖²).
+
+    fit() reports two accuracies on the SAME held-out query set:
+      - BEFORE few-shot : prototypes computed from the TRAINING reps (generic /
+                          "factory" prototypes shipped with the model).
+      - AFTER  few-shot : prototypes computed from an n_shots support set drawn
+                          from the held-out rep (on-device calibration).
+    The held-out rep is split into `n_shots` support examples per class plus a
+    query set; both accuracies use that same query set so the delta is fair.
+    Both are logged; the AFTER-few-shot accuracy is returned as `test_acc`
+    (the deployment number that lands in the benchmark table).
 
     input (B, H*W)
       └─ BN1d
@@ -700,21 +766,191 @@ class EmagerCNNGAP(_EmagerBase):
       └─ Conv2d(1  -> 32, 3x3) + BN2d + ReLU
       └─ Conv2d(32 -> 32, 3x3) + BN2d + ReLU
       └─ Conv2d(32 -> 32, 5x5) + BN2d + ReLU
-      └─ AdaptiveAvgPool2d(1)  →  (B, 32, 1, 1)
-      └─ Flatten               →  (B, 32)
-      └─ Linear(32 -> C)       ← no hidden FC layer at all
+      └─ Flatten                              →  (B, 32·H·W)
+      └─ Linear(32·H·W -> D) + BN1d + ReLU    →  (B, D)  embedding
+      └─ distance to prototypes:  logit_c = -‖e - p_c‖²/D  →  (B, C)
     """
-    def __init__(self, input_shape: tuple, num_classes: int, lr: float = 1e-3):
+    n_shots = 5   # support examples per class (training episodes AND on-device calibration)
+
+    def __init__(self, input_shape: tuple, num_classes: int, lr: float = 1e-3, embed_dim: int = 64):
         super().__init__()
         self.save_hyperparameters()
+        n = int(np.prod(input_shape))
 
-        self.normalize  = nn.BatchNorm1d(int(np.prod(input_shape)))
+        self.normalize  = nn.BatchNorm1d(n)
         self.features   = nn.Sequential(
             nn.Conv2d(1,  32, kernel_size=3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
             nn.Conv2d(32, 32, kernel_size=3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
             nn.Conv2d(32, 32, kernel_size=5, padding=2), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
+            nn.Linear(32 * n, embed_dim), nn.BatchNorm1d(embed_dim), nn.ReLU(inplace=True),
         )
-        self.classifier = nn.Linear(32, num_classes)
+        # Prototypes are a buffer (state, not a learnable Parameter): set by
+        # _prototypes_from() inside fit(), and saved/moved with the module.
+        self.register_buffer("prototypes", torch.zeros(num_classes, embed_dim))
         self.criterion  = nn.CrossEntropyLoss()
+
+    # -- embedding + prototype-distance forward (inference / predict) ----------
+    def embed(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.normalize(x.view(x.size(0), -1))
+        x = x.view(x.size(0), 1, *self.hparams.input_shape)
+        return self.features(x)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        e = self.embed(x)
+        dist = (e.unsqueeze(1) - self.prototypes.unsqueeze(0)).pow(2).sum(dim=-1)
+        return -dist / e.size(1)
+
+    # -- gradient-free prototype computation (the "few-shot" step) -------------
+    @torch.no_grad()
+    def _prototypes_from(self, batches) -> torch.Tensor:
+        """Mean embedding per class over an iterable of (x, y) batches."""
+        self.eval()
+        C, D = self.hparams.num_classes, self.hparams.embed_dim
+        psum = torch.zeros(C, D, device=self.device)
+        pcnt = torch.zeros(C, 1, device=self.device)
+        for x, y in batches:
+            e = self.embed(self.convert_input(x))
+            y = y.to(self.device)
+            for c in range(C):
+                mask = y == c
+                if mask.any():
+                    psum[c] += e[mask].sum(dim=0)
+                    pcnt[c] += mask.sum()
+        return psum / pcnt.clamp(min=1)   # classes absent from the support stay at 0
+
+    # -- split the held-out rep into an n_shots support set + a query set ------
+    @staticmethod
+    def _gather(dl):
+        xs, ys = zip(*[(x, y) for x, y in dl])
+        return torch.cat(xs), torch.cat(ys)
+
+    @staticmethod
+    def _split_support_query(x, y, k):
+        s_idx, q_idx = [], []
+        for c in y.unique():
+            ci   = (y == c).nonzero(as_tuple=True)[0]
+            perm = ci[torch.randperm(ci.numel())]
+            s_idx.append(perm[:k])
+            q_idx.append(perm[k:])
+        s, q = torch.cat(s_idx), torch.cat(q_idx)
+        return (x[s], y[s]), (x[q], y[q])
+
+    # -- eval on the query set with whatever prototypes are currently set ------
+    @torch.no_grad()
+    def _eval(self, x, y, batch: int = 256):
+        self.eval()
+        correct, total, loss_sum = 0, 0, 0.0
+        for i in range(0, x.size(0), batch):
+            logits = self(self.convert_input(x[i:i + batch]))
+            yb     = y[i:i + batch].to(self.device)
+            loss_sum += self.criterion(logits, yb).item() * yb.size(0)
+            correct  += (logits.argmax(dim=1) == yb).sum().item()
+            total    += yb.size(0)
+        return correct / total, loss_sum / total
+
+    # -- offline-train embedding → generic protos → few-shot protos → report --
+    def fit(self, train_dataloader, test_dataloader=None, max_epochs: int = 10):
+        # Stage 1: offline embedding training. The loss lives in _shared_step,
+        # which each subclass overrides (episodic vs cross-entropy pretrain).
+        trainer = L.Trainer(
+            max_epochs=max_epochs,
+            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
+        )
+        trainer.fit(self, train_dataloader)
+
+        if test_dataloader is None:
+            return
+
+        # Stage 2: held-out rep = "new session". Carve out n_shots support / class
+        # (the on-device calibration set) and keep the rest as the query set.
+        x, y = self._gather(test_dataloader)
+        (sx, sy), (qx, qy) = self._split_support_query(x, y, self.n_shots)
+
+        # Stage 3a: BEFORE few-shot — generic prototypes from the training reps.
+        self.prototypes = self._prototypes_from(train_dataloader)
+        self.acc_before_fewshot, _ = self._eval(qx, qy)
+
+        # Stage 3b: AFTER few-shot — prototypes from the n_shots support set.
+        self.prototypes = self._prototypes_from([(sx, sy)])
+        self.acc_after_fewshot, loss_after = self._eval(qx, qy)
+
+        logger.info(f"  [proto] before few-shot (generic protos): acc={self.acc_before_fewshot:.1%}")
+        logger.info(
+            f"  [proto] after  {self.n_shots}-shot calibration:   acc={self.acc_after_fewshot:.1%}  "
+            f"(delta {self.acc_after_fewshot - self.acc_before_fewshot:+.1%})"
+        )
+        return [{"test_acc": self.acc_after_fewshot, "test_loss": loss_after}]
+
+
+class EmagerCNNProtoEpisodic(_EmagerProtoBase):
+    """
+    Episodic Prototypical Network (faithful — Snell et al. 2017).
+
+    The embedding is trained the same way it is used at deployment: every
+    mini-batch is treated as an episode. Within the batch, each class's samples
+    are split into a few support examples (mean → prototype) and the rest as
+    query; the query is classified by distance to those batch prototypes and the
+    cross-entropy loss is backpropagated. The embedding is thus directly
+    optimized for the gradient-free, mean-prototype rule used on device.
+
+    Only _shared_step differs from the base; everything else (architecture,
+    the generic→few-shot eval in fit, predict) is inherited.
+    """
+    def _shared_step(self, batch):
+        x, y = batch
+        e = self.embed(x)
+
+        protos, q_e, q_t, pos = [], [], [], 0
+        for c in y.unique():
+            ci = (y == c).nonzero(as_tuple=True)[0]
+            if ci.numel() < 2:                       # need ≥1 support and ≥1 query
+                continue
+            perm = ci[torch.randperm(ci.numel(), device=e.device)]
+            n_s  = max(1, min(self.n_shots, ci.numel() - 1))
+            protos.append(e[perm[:n_s]].mean(dim=0))
+            q_e.append(e[perm[n_s:]])
+            q_t.append(torch.full((perm.numel() - n_s,), pos, dtype=torch.long, device=e.device))
+            pos += 1
+
+        if pos < 2:                                  # unusable episode (rare; e.g. tiny batch)
+            return e.sum() * 0.0, torch.zeros((), device=e.device)
+
+        protos = torch.stack(protos)                 # (P, D)
+        q_e    = torch.cat(q_e)                      # (Q, D)
+        q_t    = torch.cat(q_t)                      # (Q,)  episode-local class indices
+        dist   = (q_e.unsqueeze(1) - protos.unsqueeze(0)).pow(2).sum(dim=-1)
+        logits = -dist / q_e.size(1)
+        loss   = self.criterion(logits, q_t)
+        acc    = (logits.argmax(dim=1) == q_t).float().mean()
+        return loss, acc
+
+
+class EmagerCNNProtoCE(_EmagerProtoBase):
+    """
+    Cross-entropy pretrained embedding ("baseline" few-shot — Chen et al. 2019).
+
+    The embedding is trained with an ordinary Linear head + cross-entropy
+    (standard classification). After training the head is dropped, and the same
+    generic→few-shot prototype evaluation as the base is used. Simpler and often
+    as accurate as episodic training, but the embedding is not optimized for the
+    distance-based rule directly.
+
+    The Linear head exists only during offline training; it is removed after
+    fit() so the deployed model is just the embedding + computed prototypes.
+    """
+    def __init__(self, input_shape: tuple, num_classes: int, lr: float = 1e-3, embed_dim: int = 64):
+        super().__init__(input_shape, num_classes, lr, embed_dim)
+        self._ce_head = nn.Linear(embed_dim, num_classes)   # offline-training head only
+
+    def _shared_step(self, batch):
+        x, y   = batch
+        logits = self._ce_head(self.embed(x))
+        loss   = self.criterion(logits, y)
+        acc    = (logits.argmax(dim=1) == y).float().mean()
+        return loss, acc
+
+    def fit(self, train_dataloader, test_dataloader=None, max_epochs: int = 10):
+        out = super().fit(train_dataloader, test_dataloader, max_epochs)
+        self._ce_head = None   # deployed model = embedding + prototypes, no CE head
+        return out

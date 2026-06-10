@@ -85,6 +85,12 @@ All variants share the Lightning + LibEMG boilerplate via `_EmagerBase`. The
 variants** also override the training pipeline (`fit`) to fuse, quantize to INT8
 and evaluate on CPU, and form a small subclass chain:
 `EmagerCNNQuantizedPTQ` → `EmagerCNNQuantizedQAT` → `EmagerCNNRingStridedQAT`.
+The **few-shot prototypical variants** drop the learned classifier entirely and
+classify by distance to class prototypes that are *computed* from a support set
+(not learned); they override `fit` to model an offline-train → on-device-calibrate
+deployment flow and form their own chain:
+`_EmagerProtoBase` → `EmagerCNNProtoEpisodic` / `EmagerCNNProtoCE`. See
+[Few-shot prototypical models](#few-shot-prototypical-models) for the full flow.
 
 The dominant cost in most models is the **FC hidden layer** (`Linear(32·H·W, 256)`).
 For the default 4×16 input that's `Linear(2048, 256)` — ~525k of the ~562k total params.
@@ -327,6 +333,111 @@ the smallest deployable variant in the file)
 
 ---
 
+## Few-shot prototypical models
+
+These are a different paradigm from every variant above. They do **not** learn a
+classifier — there are no output-layer weights mapping features to class scores.
+Instead:
+
+- the network learns only an **embedding** `f_θ`: input window → a D-dim vector (default D = 64);
+- each class is represented by a **prototype** `p_c` = the **mean embedding of a few
+  labelled examples of that class** (the *support set*);
+- a new window is classified by **nearest prototype**:
+  `logitₖ = −‖f_θ(x) − pₖ‖² / D`, then softmax / argmax (Snell et al. 2017).
+
+The prototypes are **computed, not trained**: building them is just a forward pass
+plus a per-class average — **no gradient, no optimizer**. That is exactly what makes
+the approach suit **on-device calibration**.
+
+### The deployment flow (what this models)
+
+1. **Offline (server / factory)** — train the embedding `f_θ` once on data from many
+   reps/sessions. After this `f_θ` is frozen.
+2. **Ship** — the device gets the frozen embedding (and optionally "generic" prototypes
+   precomputed from the offline data).
+3. **On-device few-shot calibration** (the "few-shot finetuning") — the user records
+   `n_shots` examples of each gesture (default 5). Prototypes = mean embedding of those
+   examples. **No backprop on the device** — just forward + mean.
+4. **Inference** — classify each new window by its nearest prototype.
+
+### How `fit()` maps this onto the leave-one-out benchmark
+
+Each fit gets a `train_dl` (all reps but one) and a `test_dl` (the held-out rep). The
+model treats the held-out rep as a *new session*:
+
+| Stage | What happens | Maps to |
+|---|---|---|
+| 1  | Train the embedding `f_θ` on `train_dl` | offline training (server) |
+| 2  | Split the held-out rep: `n_shots`/class → **support**, the rest → **query** | calibration data vs. real use |
+| 3a | Prototypes = mean over **`train_dl`** embeddings → eval on **query** | **before** few-shot: generic / "factory" prototypes |
+| 3b | Prototypes = mean over the **support** set → eval on the **same query** | **after** few-shot: on-device calibration |
+
+Both accuracies use the **same query set**, so their difference cleanly isolates *what
+the on-device calibration step buys you*. The support examples are excluded from the
+query, so there is no leakage.
+
+`fit()` **logs both** numbers and **returns the after-few-shot one** as `test_acc` (the
+deployment figure that lands in the benchmark table):
+
+```
+[proto] before few-shot (generic protos): acc=...
+[proto] after  5-shot calibration:   acc=...  (delta +...)
+```
+
+> **Why before-vs-after matters.** *Before* uses prototypes from *other* reps — a generic
+> model shipped with no per-user tuning. *After* uses 5 examples per gesture from the
+> actual held-out session. On data with session / electrode shift, *after* should beat
+> *before*, and the delta is the value of the calibration step. On the synthetic
+> smoke-test the two distributions are identical, so the delta is ≈ 0 — expect a real gap
+> only on real multi-session data.
+
+### Architecture (the embedding `f_θ`, shared by both variants)
+
+```
+input → BN1d → reshape(B,1,H,W)
+  → Conv(1→32,  3x3) → BN2d → ReLU
+  → Conv(32→32, 3x3) → BN2d → ReLU
+  → Conv(32→32, 5x5) → BN2d → ReLU
+  → Flatten(2048)
+  → Linear(2048→64) → BN1d → ReLU            ← embedding (D = 64)
+  → distance to prototypes: logitₖ = −‖e − pₖ‖²/D → (B, C)
+```
+
+The prototypes live in a **buffer** (`register_buffer`), not an `nn.Parameter` — they are
+state the model carries (set during `fit`, saved with the model), but the optimizer never
+touches them. `n_shots = 5` is a class attribute: tweak it to study k-shot sensitivity. It
+sets both the on-device calibration size **and** the support size inside episodic training,
+so the embedding is trained for roughly the shot count it will meet at deployment.
+
+The two variants differ in **exactly one method** (`_shared_step`, the offline-training
+loss). Everything else — architecture, the generic→few-shot eval in `fit`, `predict` — is
+inherited from `_EmagerProtoBase`.
+
+### EmagerCNNProtoEpisodic
+
+Faithful Prototypical Network (Snell et al. 2017). The embedding is trained **the same way
+it is used**: each mini-batch is an *episode* — its samples are split per class into a few
+support (→ prototype) and the rest as query; the query is classified by distance to those
+batch prototypes and cross-entropy is backpropagated. So `f_θ` is optimized directly for
+the gradient-free mean-prototype rule used on device.
+
+**~167k params — 2.38M MACs — ~0.65 MB** (FP32)
+
+### EmagerCNNProtoCE
+
+"Baseline" few-shot (Chen et al. 2019). The embedding is trained with an ordinary
+`Linear(64→C)` head + cross-entropy (plain classification); the head is **dropped after
+training**, so only the embedding + computed prototypes are deployed. Simpler and often as
+accurate as episodic, but `f_θ` is not optimized for the distance rule directly.
+
+> The temporary CE head is the only reason ProtoCE's pre-`fit` param count (167,239) is a
+> hair above Episodic (166,784): 64×7 + 7 = 455 extra weights. They are removed inside
+> `fit()`, so the **deployed** model is identical in size to Episodic.
+
+**~167k params — 2.38M MACs — ~0.65 MB** (FP32, after the CE head is dropped)
+
+---
+
 ## Summary table
 
 | Model | Key difference | Params | File size | Overall acc (LOO)* |
@@ -344,6 +455,8 @@ the smallest deployable variant in the file)
 | `EmagerCNNQuantizedQAT` | INT8 QAT on Base architecture | 562 K | 0.55 MB§ | TBD |
 | `EmagerCNNRingStridedQAT` | RingStrided arch + INT8 QAT | 44 K | 0.057 MB§ | TBD |
 | `EmagerCNNGAP` | Global avg pool, no FC | 36 K | 0.14 MB | 90.4% |
+| `EmagerCNNProtoEpisodic` | Few-shot prototypes, episodic training | 167 K | 0.65 MB | TBD¶ |
+| `EmagerCNNProtoCE` | Few-shot prototypes, CE-pretrained embedding | 167 K | 0.65 MB | TBD¶ |
 
 *Leave-one-out cross-validation across reps, averaged over seeds `[42, 123, 456]` on 3 datasets
 (`Test_EM_C7_R5`, `Test_EM_C7_R5_02`, `Test_EM_C7_R5_03`), 7 classes × 5 reps each, 10 epochs.
@@ -369,6 +482,13 @@ near-constant ~35 KB for *every* quantized model regardless of architecture. Tha
 fixed — the harness now measures the serialized size — so 0.55 MB (Base arch) and 0.057 MB
 (RingStrided arch) are the true on-disk footprints, not the old ~35 KB artifact.
 
+¶ **Few-shot prototypical models.** The accuracy column for `EmagerCNNProtoEpisodic` /
+`EmagerCNNProtoCE` is the **after 5-shot calibration** query accuracy; `fit()` also logs a
+*before-calibration* number (generic prototypes). These are a different paradigm from the
+rest of the table — no learned classifier, prototypes computed from a support set — so the
+numbers are not directly comparable to the cross-entropy classifiers above. See
+[Few-shot prototypical models](#few-shot-prototypical-models).
+
 ### Per-dataset breakdown (LOO, mean ± std over reps × seeds)
 
 | Model | Test_EM_C7_R5 | Test_EM_C7_R5_02 | Test_EM_C7_R5_03 | Overall |
@@ -384,6 +504,8 @@ fixed — the harness now measures the serialized size — so 0.55 MB (Base arch
 | EmagerCNNQuantizedQAT‡ | TBD | TBD | TBD | TBD |
 | EmagerCNNRingStridedQAT‡ | TBD | TBD | TBD | TBD |
 | EmagerCNNGAP      | 93.9% ± 10.2% | 90.7% ± 6.0% | 86.6% ± 9.2% | 90.4% |
+| EmagerCNNProtoEpisodic¶ | TBD | TBD | TBD | TBD |
+| EmagerCNNProtoCE¶ | TBD | TBD | TBD | TBD |
 
 ### Takeaways
 
@@ -397,6 +519,8 @@ fixed — the harness now measures the serialized size — so 0.55 MB (Base arch
 > **EmagerCNNGAP** is the only clear loser: −3.7% vs Base, and a large std on `Test_EM_C7_R5` (±10.2%) — removing the FC hidden layer costs too much capacity.
 > Variance grows on `_02` and `_03` (std up to ±9% on some models) — these splits are noticeably harder than the original `Test_EM_C7_R5`.
 > **Quantization (PTQ / QAT).** `EmagerCNNQuantizedPTQ` (preliminary, 1 dataset / 1 seed) drops ~0.1 pp vs Base on the same split while shrinking the model ~4× (2.2 MB → ~0.55 MB INT8). These are the variants that target *weight precision* rather than architecture, and the win composes with the architectural ones: `EmagerCNNRingStridedQAT` stacks INT8 QAT on top of the RingStrided collapse for the smallest deployable model (~44 K params, ~0.057 MB). `EmagerCNNQuantizedQAT` exists to measure how much accuracy QAT recovers over PTQ at the same size. All three INT8 variants are pending a full multi-dataset / multi-seed run.
+>
+> **Few-shot prototypical (`ProtoEpisodic` / `ProtoCE`).** A different axis again — not *architecture* or *weight precision* but *how classification is done*. The embedding is trained offline; the classifier is just the mean of a few on-device examples per gesture (no on-device backprop). The number to watch is the **before→after 5-shot delta**: how much a quick per-session calibration recovers. Expect the gap to show up only on real multi-session / electrode-shift data (≈ 0 on the synthetic smoke-test). `ProtoEpisodic` trains `f_θ` for the distance rule directly; `ProtoCE` trains a plain classifier and reuses its embedding — compare the two to see whether episodic training is worth it here. Both pending their first real run.
 
 ### Benchmark harness columns
 
@@ -421,3 +545,11 @@ For an **INT8 variant** of a new architecture, subclass `EmagerCNNQuantizedPTQ`
 `_fuse_groups` class attribute to point at the Conv+BN+ReLU index triplets in your
 `features` layout. `EmagerCNNRingStridedQAT` is the worked example. If the stack
 uses ring padding, rely on `RingPad2d` (its `torch.cat` wrap is quantization-safe).
+
+For a **few-shot prototypical variant**, subclass `_EmagerProtoBase` instead and override
+only `_shared_step` (the offline-training loss). The embedding architecture, the
+prototype computation, and the generic→few-shot eval flow in `fit()` are all inherited.
+`EmagerCNNProtoEpisodic` (episodic loss) and `EmagerCNNProtoCE` (cross-entropy head, dropped
+after training) are the two worked examples. To change the embedding backbone, override
+`self.features` in `__init__` after calling `super().__init__()`, keeping a final
+`Linear(..., embed_dim)` so the output is a D-dim embedding.

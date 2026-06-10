@@ -46,7 +46,9 @@ MODELS_TO_TEST = [
     # "EmagerCNNGAP",
     # "EmagerCNNQuantizedPTQ",
     # "EmagerCNNQuantizedQAT",
-    "EmagerCNNRingStridedQAT",
+    # "EmagerCNNRingStridedQAT",
+    "EmagerCNNProtoEpisodic",     # few-shot: episodic prototypical training
+    "EmagerCNNProtoCE",           # few-shot: cross-entropy pretrain + computed prototypes
 ]
 
 WINDOW_SIZE      = 200

@@ -154,3 +154,24 @@ Most recent runs are appended below.
 |---|---|---|---|---|---|---|
 | EmagerCNNProtoCE | 99.5% ± 0.4% | 99.5% | 167,239 | 665.3 | 2.38M | 0.67 |
 | EmagerCNNProtoEpisodic | 99.4% ± 0.5% | 99.4% | 166,784 | 665.3 | 2.38M | 0.67 |
+
+## 2026-07-03 16:02:57
+
+- **Datasets** (leave-one-out across reps):
+    - `Test_EM_C7_R5` — 7 classes, 5 reps · ~5,974 datapoints/rep (~3.0s @ 2000 Hz)
+    - `Test_EM_C7_R5_02` — 7 classes, 5 reps · ~6,103 datapoints/rep (~3.1s @ 2000 Hz)
+    - `Test_EM_C7_R5_03` — 7 classes, 5 reps · ~6,101 datapoints/rep (~3.1s @ 2000 Hz)
+- **Seeds:** [42, 123, 456]
+- **Epochs:** 10  |  **Window:** 200/10  |  **Sampling:** 2000  |  **Batch:** 64/256
+- **Fits:** 225 total  ·  60.5s avg/fit (incl. data load)
+- **Config file:** (constants in script)
+- **Host:** cpu · torch 2.10.0+cpu · py 3.12.3 · Windows-11-10.0.26200-SP0
+- **Elapsed:** 3h 46m 51s
+
+| Model | Test_EM_C7_R5 | Test_EM_C7_R5_02 | Test_EM_C7_R5_03 | Overall | Params | Size (KB) | MACs | Lat (ms) |
+|---|---|---|---|---|---|---|---|---|
+| EmagerCNNCircular | 99.0% ± 1.0% | 92.2% ± 4.3% | 91.3% ± 7.5% | 94.2% | 562,375 | 2,210.8 | 2.77M | 2.24 |
+| EmagerCNNQuantizedPTQ | 98.6% ± 1.6% | 93.0% ± 4.3% | 90.6% ± 8.3% | 94.1% | 562,375 | 567.3 | 2.77M | 1.00 |
+| EmagerCNNRingStridedQAT | 98.5% ± 1.4% | 93.2% ± 4.2% | 89.8% ± 8.3% | 93.9% | 44,359 | 58.4 | 152.5K | 1.24 |
+| EmagerCNNQuantizedQAT | 97.9% ± 3.8% | 92.4% ± 3.8% | 91.0% ± 7.7% | 93.8% | 562,375 | 567.3 | 2.77M | 0.99 |
+| EmagerCNNRingStrided | 98.9% ± 0.8% | 90.7% ± 4.8% | 89.9% ± 8.5% | 93.2% | 44,359 | 185.8 | 152.5K | 0.88 |

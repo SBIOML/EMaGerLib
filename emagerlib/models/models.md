@@ -445,34 +445,37 @@ accurate as episodic, but `f_θ` is not optimized for the distance rule directly
 | Legacy (`models.py`) | Conv→**ReLU→BN** (non-standard) | 562 K | 2.2 MB | not benchmarked |
 | `emager_cnn.py` (reference) | Conv→BN→ReLU (standard) | 562 K | 2.2 MB | not benchmarked |
 | `EmagerCNNDeep` | Extra 3×3 conv layer | 572 K | 2.3 MB | **94.5%** |
+| `EmagerCNNCircular` | Ring padding on W only (column axis)† | 562 K | 2.2 MB | 94.2%† |
 | `EmagerCNNBase` | Identical to reference | 562 K | 2.2 MB | 94.1% |
+| `EmagerCNNQuantizedPTQ` | INT8 PTQ on Base architecture | 562 K | 0.55 MB§ | 94.1%‡ |
 | `EmagerCNNLight` | 16-ch convs, 128-dim FC | 141 K | 0.6 MB | 94.0% |
-| `EmagerCNNCircular` | Ring padding on W only (column axis)† | 562 K | 2.2 MB | 93.7%† |
+| `EmagerCNNRingStridedQAT` | RingStrided arch + INT8 QAT | 44 K | 0.057 MB§ | 93.9% |
+| `EmagerCNNQuantizedQAT` | INT8 QAT on Base architecture | 562 K | 0.55 MB§ | 93.8% |
 | `EmagerCNNWide` | 64-ch convs, bigger FC | 1.17 M | 4.7 MB | 93.6% |
+| `EmagerCNNRingStrided` | Strided + ring padding on W only | 44 K | 0.18 MB | 93.2% |
 | `EmagerCNNStrided` | Stride=2 collapses spatial | 44 K | 0.18 MB | 93.1% |
-| `EmagerCNNRingStrided` | Strided + ring padding on W only | 44 K | 0.18 MB | TBD |
-| `EmagerCNNQuantizedPTQ` | INT8 PTQ on Base architecture | 562 K | 0.55 MB§ | 98.2%‡ |
-| `EmagerCNNQuantizedQAT` | INT8 QAT on Base architecture | 562 K | 0.55 MB§ | TBD |
-| `EmagerCNNRingStridedQAT` | RingStrided arch + INT8 QAT | 44 K | 0.057 MB§ | TBD |
 | `EmagerCNNGAP` | Global avg pool, no FC | 36 K | 0.14 MB | 90.4% |
 | `EmagerCNNProtoEpisodic` | Few-shot prototypes, episodic training | 167 K | 0.65 MB | TBD¶ |
 | `EmagerCNNProtoCE` | Few-shot prototypes, CE-pretrained embedding | 167 K | 0.65 MB | TBD¶ |
 
 *Leave-one-out cross-validation across reps, averaged over seeds `[42, 123, 456]` on 3 datasets
 (`Test_EM_C7_R5`, `Test_EM_C7_R5_02`, `Test_EM_C7_R5_03`), 7 classes × 5 reps each, 10 epochs.
-315 total fits, ~3h 55m wall time at ~45s/fit. See breakdown below.
+315 total fits, ~3h 55m wall time at ~45s/fit. See breakdown below. A second batch (225 fits,
+3h 47m, same protocol, run 2026-07-03) covers `EmagerCNNCircular` (re-measure), `RingStrided`,
+`QuantizedPTQ`, `QuantizedQAT`, `RingStridedQAT` — the raw log is in `RESULTS_LOG.md`.
 
-†`EmagerCNNCircular` was re-implemented post-benchmark to use `RingPad2d` (W-circular,
-H-zero) instead of PyTorch's both-axes `padding_mode='circular'`. The 93.7% number is
-from the prior both-axes version and needs to be re-measured.
+†`EmagerCNNCircular` was re-implemented to use `RingPad2d` (W-circular, H-zero) instead of
+PyTorch's both-axes `padding_mode='circular'`. The number above (94.2%) is the re-measured
+W-only-ring result; the prior both-axes implementation scored 93.7% and is superseded.
+Wrapping only the physical electrode-column axis (not the row axis) turns out to help:
+Circular is now the best-performing non-Deep architecture variant, edging out Base by +0.1%.
 
-‡`EmagerCNNQuantizedPTQ` was added after the main benchmark run. The 98.2% number is from a
-single-dataset (`Test_EM_C7_R5`) single-seed (`42`) run only — not directly comparable to
-the multi-dataset overall column for the other models. On the same single-dataset/seed run,
-`EmagerCNNBase` scored 98.3%, so the quantization-induced accuracy loss is ~0.1 pp. Pending
-a full multi-dataset / multi-seed re-run for a fair overall number. The two QAT variants
-(`EmagerCNNQuantizedQAT`, `EmagerCNNRingStridedQAT`) have only been smoke-tested so far —
-accuracy is TBD pending a real run.
+‡`EmagerCNNQuantizedPTQ` was smoke-tested single-dataset/single-seed when first added (98.2%
+vs Base's 98.3% on that split, ~0.1 pp loss). The number above (94.1%) is from the full
+multi-dataset / multi-seed run and matches Base (94.1%) almost exactly — quantization is
+essentially free on this architecture. `EmagerCNNQuantizedQAT` (93.8%) does not improve on
+PTQ here — the QAT fine-tuning doesn't recover anything PTQ was leaving on the table, so PTQ
+is the better default unless a future architecture shows a larger PTQ accuracy drop.
 
 § **Quantized size caveat.** File sizes for the INT8 variants are the *real serialized
 `state_dict` size* (`torch.save`), ≈ ¼ of the FP32 equivalent. An earlier version of the
@@ -494,15 +497,15 @@ numbers are not directly comparable to the cross-entropy classifiers above. See
 | Model | Test_EM_C7_R5 | Test_EM_C7_R5_02 | Test_EM_C7_R5_03 | Overall |
 |---|---|---|---|---|
 | EmagerCNNDeep     | 98.5% ± 1.5% | 93.4% ± 3.2% | 91.5% ± 6.2%  | **94.5%** |
+| EmagerCNNCircular†| 99.0% ± 1.0% | 92.2% ± 4.3% | 91.3% ± 7.5%  | 94.2%† |
 | EmagerCNNBase     | 98.7% ± 1.5% | 93.0% ± 4.3% | 90.6% ± 8.4%  | 94.1% |
+| EmagerCNNQuantizedPTQ‡ | 98.6% ± 1.6% | 93.0% ± 4.3% | 90.6% ± 8.3% | 94.1%‡ |
 | EmagerCNNLight    | 98.3% ± 2.8% | 93.3% ± 4.0% | 90.4% ± 7.2%  | 94.0% |
-| EmagerCNNCircular†| 98.8% ± 1.5% | 92.0% ± 4.5% | 90.4% ± 7.6%  | 93.7%† |
+| EmagerCNNRingStridedQAT | 98.5% ± 1.4% | 93.2% ± 4.2% | 89.8% ± 8.3% | 93.9% |
+| EmagerCNNQuantizedQAT‡ | 97.9% ± 3.8% | 92.4% ± 3.8% | 91.0% ± 7.7% | 93.8%‡ |
 | EmagerCNNWide     | 98.7% ± 1.5% | 92.3% ± 3.4% | 89.8% ± 8.7%  | 93.6% |
+| EmagerCNNRingStrided | 98.9% ± 0.8% | 90.7% ± 4.8% | 89.9% ± 8.5% | 93.2% |
 | EmagerCNNStrided  | 98.4% ± 1.6% | 90.4% ± 5.5% | 90.4% ± 7.2%  | 93.1% |
-| EmagerCNNRingStrided | TBD | TBD | TBD | TBD |
-| EmagerCNNQuantizedPTQ‡ | 98.2% ± 1.5% | TBD | TBD | TBD |
-| EmagerCNNQuantizedQAT‡ | TBD | TBD | TBD | TBD |
-| EmagerCNNRingStridedQAT‡ | TBD | TBD | TBD | TBD |
 | EmagerCNNGAP      | 93.9% ± 10.2% | 90.7% ± 6.0% | 86.6% ± 9.2% | 90.4% |
 | EmagerCNNProtoEpisodic¶ | TBD | TBD | TBD | TBD |
 | EmagerCNNProtoCE¶ | TBD | TBD | TBD | TBD |
@@ -515,12 +518,12 @@ numbers are not directly comparable to the cross-entropy classifiers above. See
 > **EmagerCNNWide** does not pay off: 2× the params of Base for −0.5% accuracy.
 > **EmagerCNNLight** is the best small-model accuracy: ~4× fewer params than Base for only −0.1% accuracy. Beats Strided by +0.9%.
 > **EmagerCNNStrided** remains the best size/accuracy ratio (12× fewer params than Base for −1.0% accuracy), but the LOO penalty is larger than the single-split number suggested.
-> **EmagerCNNCircular** held up under LOO (−0.4% vs Base) on the prior both-axes implementation. Since then the padding was rewritten to wrap W only (the physical electrode ring); re-benchmark pending. **EmagerCNNRingStrided** stacks the same W-only ring padding on top of `EmagerCNNStrided` and is also pending its first benchmark.
+> **EmagerCNNCircular** (re-measured, W-only ring pad): 94.2% overall — **+0.1% above Base**, now the best-performing non-Deep architecture variant, and an improvement over the prior both-axes implementation's 93.7%. Wrapping only the physical electrode-column axis (not the row axis, which doesn't physically loop) is the right call. **EmagerCNNRingStrided** (strided + W-only ring pad): 93.2% overall, essentially matching plain `EmagerCNNStrided` (93.1%) — at 12× fewer params than Base, the ring padding neither helps nor hurts once the spatial dims are already collapsed to (1,4).
 > **EmagerCNNGAP** is the only clear loser: −3.7% vs Base, and a large std on `Test_EM_C7_R5` (±10.2%) — removing the FC hidden layer costs too much capacity.
 > Variance grows on `_02` and `_03` (std up to ±9% on some models) — these splits are noticeably harder than the original `Test_EM_C7_R5`.
-> **Quantization (PTQ / QAT).** `EmagerCNNQuantizedPTQ` (preliminary, 1 dataset / 1 seed) drops ~0.1 pp vs Base on the same split while shrinking the model ~4× (2.2 MB → ~0.55 MB INT8). These are the variants that target *weight precision* rather than architecture, and the win composes with the architectural ones: `EmagerCNNRingStridedQAT` stacks INT8 QAT on top of the RingStrided collapse for the smallest deployable model (~44 K params, ~0.057 MB). `EmagerCNNQuantizedQAT` exists to measure how much accuracy QAT recovers over PTQ at the same size. All three INT8 variants are pending a full multi-dataset / multi-seed run.
+> **Quantization (PTQ / QAT).** Full multi-dataset run: `EmagerCNNQuantizedPTQ` matches Base almost exactly (94.1% vs 94.1%) while shrinking the model ~4× (2.2 MB → 0.55 MB INT8) — quantization is essentially free on this architecture. `EmagerCNNQuantizedQAT` (93.8%) does **not** beat PTQ here — the fake-quant fine-tuning doesn't recover anything PTQ was leaving on the table, so PTQ is the better default unless a future architecture shows a bigger PTQ accuracy drop. `EmagerCNNRingStridedQAT` (93.9%, 44 K params, 0.057 MB) stacks INT8 QAT on the RingStrided collapse for the smallest deployable model in the file, at only −0.2 pp vs plain Base.
 >
-> **Few-shot prototypical (`ProtoEpisodic` / `ProtoCE`).** A different axis again — not *architecture* or *weight precision* but *how classification is done*. The embedding is trained offline; the classifier is just the mean of a few on-device examples per gesture (no on-device backprop). The number to watch is the **before→after 5-shot delta**: how much a quick per-session calibration recovers. Expect the gap to show up only on real multi-session / electrode-shift data (≈ 0 on the synthetic smoke-test). `ProtoEpisodic` trains `f_θ` for the distance rule directly; `ProtoCE` trains a plain classifier and reuses its embedding — compare the two to see whether episodic training is worth it here. Both pending their first real run.
+> **Few-shot prototypical (`ProtoEpisodic` / `ProtoCE`).** A different axis again — not *architecture* or *weight precision* but *how classification is done*. The embedding is trained offline; the classifier is just the mean of a few on-device examples per gesture (no on-device backprop). The number to watch is the **before→after 5-shot delta**: how much a quick per-session calibration recovers. Expect the gap to show up only on real multi-session / electrode-shift data (≈ 0 on the synthetic smoke-test). `ProtoEpisodic` trains `f_θ` for the distance rule directly; `ProtoCE` trains a plain classifier and reuses its embedding — compare the two to see whether episodic training is worth it here. The dedicated leave-one-session-out harness (`eval_fewshot_loso.py`) has run once (see `FEWSHOT_LOSO_LOG.md`); this LOO-across-reps table's Overall column is still TBD for both since that eval isn't the right harness to isolate the calibration benefit (see the harness's own docstring for why).
 
 ### Benchmark harness columns
 

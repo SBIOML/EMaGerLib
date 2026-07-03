@@ -26,13 +26,13 @@ BASE_PATH = Path(__file__).parent.parent.parent / "Datasets"
 
 DATASETS = [
     "Test_EM_C7_R5",
-    # "Test_EM_C7_R5_02",
-    # "Test_EM_C7_R5_03",
+    "Test_EM_C7_R5_02",
+    "Test_EM_C7_R5_03",
 ]
 
 # Each model is trained once per seed. Results reported as mean +/- std.
 # Set to a single value (e.g. [42]) for a quick one-shot run.
-SEEDS = [42]
+SEEDS = [42, 123, 456]
 
 # Comment / uncomment to select which variants to include.
 MODELS_TO_TEST = [
@@ -41,14 +41,14 @@ MODELS_TO_TEST = [
     # "EmagerCNNDeep",
     # "EmagerCNNLight",
     # "EmagerCNNStrided",
-    # "EmagerCNNCircular",
-    # "EmagerCNNRingStrided",
+    "EmagerCNNCircular",          # pending re-measure (rewritten to W-only ring pad)
+    "EmagerCNNRingStrided",       # pending: never benchmarked
     # "EmagerCNNGAP",
-    # "EmagerCNNQuantizedPTQ",
-    # "EmagerCNNQuantizedQAT",
-    # "EmagerCNNRingStridedQAT",
-    "EmagerCNNProtoEpisodic",     # few-shot: episodic prototypical training
-    "EmagerCNNProtoCE",           # few-shot: cross-entropy pretrain + computed prototypes
+    "EmagerCNNQuantizedPTQ",      # pending: only 1-dataset/1-seed smoke run so far
+    "EmagerCNNQuantizedQAT",      # pending: only smoke-tested so far
+    "EmagerCNNRingStridedQAT",    # pending: only smoke-tested so far
+    # "EmagerCNNProtoEpisodic",     # few-shot: episodic prototypical training
+    # "EmagerCNNProtoCE",           # few-shot: cross-entropy pretrain + computed prototypes
 ]
 
 WINDOW_SIZE      = 200

@@ -136,3 +136,9 @@ imports `load_and_filter`, `read_dataset_info`, `BASE_PATH` from it).
   base for those families), with a matching row + section added to `models.md`.
 - `CHANGELOG.md` is kept (Keep-a-Changelog style); the project is on SemVer, currently
   1.2.1 with an `[Unreleased]` section.
+- **Git workflow.** Commit changes as you go — group each coherent unit of work into
+  its own commit (Conventional Commits style, matching the existing history) — but do
+  **not** push; the user pushes themselves. If a produced file isn't worth committing
+  (temp/scratch files, generated build artifacts, per-run outputs, large caches), add
+  it to `.gitignore` instead of committing it, rather than leaving it as clutter in the
+  working tree.

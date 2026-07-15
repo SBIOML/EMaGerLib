@@ -40,6 +40,17 @@ dependencies = [
 dev = [
     # Add developer dependencies here when needed (e.g. pytest, ruff)
 ]
+# Microcontroller export toolchain (examples/deployment/export_model.py):
+# PyTorch -> ONNX -> TFLite (float32 + full INT8) -> C array. Not needed for the
+# core library or realtime paths; install only when exporting models for an MCU.
+#   pip install -e ".[deploy]"
+deploy = [
+    "onnx",
+    "onnxruntime",
+    "tensorflow",
+    "onnx2tf",
+    "tf_keras",      # onnx2tf needs it to emit a TF SavedModel for INT8 conversion
+]
 
 [project.scripts]
 # Main entry point

@@ -14,6 +14,21 @@ Overview of all model files, their status, architecture, and estimated size.
 
 ---
 
+## Exporting to a microcontroller
+
+Any trained variant can be exported to MCU-ready formats with
+[`examples/deployment/export_model.py`](../../examples/deployment/export_model.py):
+**PyTorch → ONNX → TFLite float32 → TFLite full-INT8 → C array**, with each stage
+numerically verified against the PyTorch reference. INT8 is a full-integer
+quantization (int8 weights + int8 I/O) calibrated on real MAV windows via
+TensorFlow's `TFLiteConverter` — a converter-side quantization path, separate from
+the in-repo `torch.ao.quantization` INT8 chain below (which targets PyTorch/FINN,
+not TFLite). `EmagerCNNRingStrided` is the recommended first MCU target (smallest
+architecture variant); the prototypical models export too (generic prototypes are
+baked in). See [`examples/deployment/README.md`](../../examples/deployment/README.md).
+
+---
+
 ## `models.py` — Legacy
 
 Contains the original `EmagerCNN` and `EmagerSCNN`. **Do not use for new work.**

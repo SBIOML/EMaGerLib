@@ -207,6 +207,19 @@ Run real-time control with a connected prosthetic:
 emager realtime-control
 ```
 
+### 7. Export a Model to a Microcontroller
+
+Convert a trained model to MCU-ready ONNX / TFLite (float32 + full INT8) / C array,
+with each stage numerically verified against the PyTorch reference:
+
+```bash
+pip install -e ".[deploy]"                       # one-time: export toolchain
+python examples/deployment/export_model.py       # -> examples/deployment/exported/<model>/
+```
+
+Targets STM32 X-CUBE-AI, TFLite Micro / LiteRT, and ONNX Runtime.
+See [examples/deployment/README.md](examples/deployment/README.md).
+
 ## Configuration
 
 EMaGerLib uses a flexible configuration system supporting multiple formats:

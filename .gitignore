@@ -5,6 +5,9 @@ TODO.txt
 # Benchmark run outputs: ignore the per-run JSON dumps, keep RESULTS_LOG.md tracked
 examples/training/benchmark_results/*.json
 
+# Microcontroller export artifacts (generated .onnx/.tflite/.h build outputs)
+examples/deployment/exported/
+
 # Model weights (host externally, do not commit)
 *.pth
 /models/

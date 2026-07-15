@@ -54,7 +54,10 @@ window can be a near-duplicate of a query window. Splitting by rep makes k an
 instruction you can actually give a user ("do each gesture k times") and is
 leakage-free -- support and query come from different contractions.
 
-Because there are 5 reps, k ranges 1..4 (one rep is always reserved for query).
+k can range up to (reps_per_session - 1) since one rep is always reserved for
+query. K_VALUES below is trimmed per-fold to whatever the held-out session
+actually has (see `k_values_fold` in `main()`), so mixing session groups with
+different rep counts is safe.
 
 Caching
 -------
@@ -101,13 +104,18 @@ logger = logging.getLogger(__name__)
 
 # Sessions of the SAME subject, leave-one-session-out. All must share classes/reps.
 SESSIONS = [
-    "Test_EM_C7_R5",       # 2026-03-19           (11 days before the others)
-    "Test_EM_C7_R5_02",    # 2026-03-30 16:24
-    "Test_EM_C7_R5_03",    # 2026-03-30 17:02     (~40 min after _02)
+    "Felix_5sessions/S_0",   # 2026-03-09 14:52
+    "Felix_5sessions/S_1",   # 2026-03-10 22:54  (~1.3 days later)
+    "Felix_5sessions/S_2",   # 2026-03-12 11:46  (~1.5 days later)
+    "Felix_5sessions/S_3",   # 2026-03-14 19:49  (~2.3 days later)
+    "Felix_5sessions/S_4",   # 2026-03-17 11:28  (~2.9 days later)
 ]
+# Prior run used the EM subject's 3 sessions (see FEWSHOT_LOSO_LOG.md, 2026-06-10):
+#   ["Test_EM_C7_R5", "Test_EM_C7_R5_02", "Test_EM_C7_R5_03"]
 
-SEEDS    = [42, 123, 456]      # offline-training seed AND which reps are support/query
-K_VALUES = [1, 2, 3, 4]        # calibration REPETITIONS per class (1 rep reserved for query)
+SEEDS    = [42, 123, 456]                  # offline-training seed AND which reps are support/query
+K_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9]     # calibration REPETITIONS per class (1 rep reserved for query;
+                                            # Felix sessions have 10 reps each vs EM's 5, hence the wider sweep)
 
 CNN_MODEL    = "EmagerCNNBase"
 PROTO_MODELS = ["EmagerCNNProtoEpisodic", "EmagerCNNProtoCE"]
@@ -210,7 +218,10 @@ def _cache_path(model_name, held_out, seed, train_names):
     in it: offline training is independent of the calibration protocol."""
     import hashlib
     tr = hashlib.md5("+".join(sorted(train_names)).encode()).hexdigest()[:8]
-    fn = (f"{model_name}__ho-{held_out}__seed{seed}__ep{MAX_EPOCHS}"
+    # Session names may contain "/" (e.g. "Felix_5sessions/S_0") when a dataset
+    # groups sessions in subfolders -- sanitize so the cache key stays a flat filename.
+    ho = held_out.replace("/", "_").replace("\\", "_")
+    fn = (f"{model_name}__ho-{ho}__seed{seed}__ep{MAX_EPOCHS}"
           f"__w{WINDOW_SIZE}-{WINDOW_INCREMENT}__sr{SAMPLING}__tr{tr}.pt")
     return CACHE_DIR / fn
 

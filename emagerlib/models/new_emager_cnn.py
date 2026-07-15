@@ -655,6 +655,73 @@ class EmagerCNNQuantizedQAT(EmagerCNNQuantizedPTQ):
         taq.prepare_qat(self, inplace=True)
 
 
+class EmagerCNNRingStridedPTQ(EmagerCNNQuantizedPTQ):
+    """
+    EmagerCNNRingStrided architecture with post-training INT8 quantization (PTQ).
+
+    The PTQ counterpart to EmagerCNNRingStridedQAT: same RingStrided conv stack
+    (strided spatial collapse + column-only ring padding), but INT8 quantization
+    is applied *after* FP32 training (calibrate observers, then convert) rather
+    than simulated during a fine-tuning phase. Reuses the entire PTQ pipeline from
+    EmagerCNNQuantizedPTQ (FP32 train -> fold classifier BN -> fuse Conv+BN+ReLU
+    -> calibrate -> convert -> CPU eval). Only two things change vs that class,
+    exactly mirroring how EmagerCNNRingStridedQAT specializes EmagerCNNQuantizedQAT:
+      - __init__ builds the RingStrided conv stack (RingPad2d interleaved with
+        strided Conv2d) instead of the Base stack, plus the quant/dequant stubs.
+      - _fuse_groups points at the Conv+BN+ReLU indices in *this* features layout.
+        RingPad2d sits at indices 0/4/8, so the triplets are at 1-3, 5-7, 9-11.
+
+    RingPad2d is quantization-safe (it wraps W with torch.cat, not F.pad's
+    circular mode, which raises on quantized tensors). Useful comparisons:
+      - EmagerCNNRingStrided    (same arch, FP32) — the pure quantization cost
+      - EmagerCNNRingStridedQAT (same arch, QAT)  — PTQ vs QAT on this arch
+      - EmagerCNNQuantizedPTQ   (Base arch, PTQ)  — architecture effect at equal precision
+
+    input (B, H*W)
+      |- BN1d                                   (kept FP32 -- raw signal range)
+      |- reshape (B, 1, 4, 16)
+      |- QuantStub                              (FP32 -> INT8 from here)
+      |- RingPad(w=1,h=1) -> [Conv(1 ->32, 3x3, s=2) + BN + ReLU]  fused -> (B,32,2,8)
+      |- RingPad(w=1,h=1) -> [Conv(32->32, 3x3, s=2) + BN + ReLU]  fused -> (B,32,1,4)
+      |- RingPad(w=2,h=2) -> [Conv(32->32, 5x5, s=1) + BN + ReLU]  fused -> (B,32,1,4)
+      |- Flatten -> (B, 128)
+      |- Linear(128 -> 64)
+      |- Dropout(0.5)
+      |- [BN1d + ReLU]                          (BN1d folded into Linear before convert)
+      |- Linear(64 -> C)
+      |- DeQuantStub                            (INT8 -> FP32 out)
+    """
+    # RingPad2d occupies indices 0/4/8; Conv+BN+ReLU triplets are at 1-3, 5-7, 9-11.
+    _fuse_groups = [["1", "2", "3"], ["5", "6", "7"], ["9", "10", "11"]]
+
+    def __init__(self, input_shape: tuple, num_classes: int, lr: float = 1e-3):
+        # Reuse the quantized scaffold from the parent (hparams, normalize, quant/
+        # dequant stubs, criterion, _quantized), then replace the Base conv stack
+        # and classifier with the RingStrided architecture.
+        super().__init__(input_shape, num_classes, lr)
+
+        # spatial size after two stride-2 convs (kernel=3, pad 1 each side via RingPad)
+        h = (input_shape[0] + 2 - 3) // 2 + 1
+        h = (h              + 2 - 3) // 2 + 1
+        w = (input_shape[1] + 2 - 3) // 2 + 1
+        w = (w              + 2 - 3) // 2 + 1
+        flat = 32 * h * w   # 128 for the default (4, 16) input
+
+        self.features   = nn.Sequential(
+            RingPad2d(pad_w=1, pad_h=1),
+            nn.Conv2d(1,  32, kernel_size=3, stride=2, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=False),
+            RingPad2d(pad_w=1, pad_h=1),
+            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=False),
+            RingPad2d(pad_w=2, pad_h=2),
+            nn.Conv2d(32, 32, kernel_size=5, stride=1, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=False),
+            nn.Flatten(),
+        )
+        self.classifier = nn.Sequential(
+            nn.Linear(flat, 64), nn.Dropout(0.5), nn.BatchNorm1d(64), nn.ReLU(inplace=False),
+            nn.Linear(64, num_classes),
+        )
+
+
 class EmagerCNNRingStridedQAT(EmagerCNNQuantizedQAT):
     """
     EmagerCNNRingStrided architecture trained with Quantization-Aware Training.

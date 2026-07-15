@@ -98,8 +98,10 @@ Key details:
 All variants share the Lightning + LibEMG boilerplate via `_EmagerBase`. The
 **architecture variants** change only `__init__` (the layers). The **quantization
 variants** also override the training pipeline (`fit`) to fuse, quantize to INT8
-and evaluate on CPU, and form a small subclass chain:
-`EmagerCNNQuantizedPTQ` → `EmagerCNNQuantizedQAT` → `EmagerCNNRingStridedQAT`.
+and evaluate on CPU, and form a small subclass tree:
+`EmagerCNNQuantizedPTQ` → `EmagerCNNQuantizedQAT`, with two RingStrided-architecture
+leaves — `EmagerCNNRingStridedPTQ` (subclasses PTQ) and `EmagerCNNRingStridedQAT`
+(subclasses QAT).
 The **few-shot prototypical variants** drop the learned classifier entirely and
 classify by distance to class prototypes that are *computed* from a support set
 (not learned); they override `fit` to model an offline-train → on-device-calibrate
@@ -321,6 +323,38 @@ wall time is higher — it runs an FP32 warm start *plus* `qat_epochs` of fine-t
 
 ---
 
+### EmagerCNNRingStridedPTQ
+
+The **PTQ counterpart** to `EmagerCNNRingStridedQAT`: the exact same RingStrided
+architecture (strided spatial collapse + column-only ring padding), but INT8
+quantization is applied *after* FP32 training (fuse → calibrate → convert) instead
+of being simulated during a fine-tuning phase. Subclasses `EmagerCNNQuantizedPTQ`
+and reuses its entire pipeline; `__init__` swaps in the RingStrided conv stack and
+`_fuse_groups` is overridden to the same `1-3 / 5-7 / 9-11` triplets as the QAT
+variant (`RingPad2d` occupies indices 0/4/8).
+
+```
+input → BN1d → reshape → QuantStub
+  RingPad(w=1,h=1) → [Conv(1→32, 3x3, s=2) + BN + ReLU]  fused → INT8 → (2,8)
+  RingPad(w=1,h=1) → [Conv(32→32, 3x3, s=2) + BN + ReLU] fused → INT8 → (1,4)
+  RingPad(w=2,h=2) → [Conv(32→32, 5x5, s=1) + BN + ReLU] fused → INT8 → (1,4)
+  Flatten(128) → Linear_folded(128→64) → ReLU → Linear(64→C) → DeQuantStub
+```
+
+This completes the 2×2 grid of {Base, RingStrided} architecture × {PTQ, QAT}
+quantization, so three head-to-head comparisons become available: vs
+`EmagerCNNRingStrided` (same arch, FP32) isolates the pure quantization cost; vs
+`EmagerCNNRingStridedQAT` (same arch, QAT) is the PTQ-vs-QAT question on this
+collapsed architecture; vs `EmagerCNNQuantizedPTQ` (Base arch, PTQ) is the
+architecture effect at equal weight precision. Like the QAT variant it relies on
+the quantization-safe `RingPad2d` (`torch.cat` wrap, not `F.pad(mode="circular")`).
+
+**~44k params — ~0.057 MB INT8** (identical architecture and on-disk footprint to
+`EmagerCNNRingStridedQAT`; only the training/quantization pipeline differs — PTQ
+skips the QAT fine-tuning phase, so it is cheaper to produce)
+
+---
+
 ### EmagerCNNRingStridedQAT
 
 All three optimization axes stacked: **strided** spatial collapse + **column-only
@@ -467,6 +501,7 @@ accurate as episodic, but `f_θ` is not optimized for the distance rule directly
 | `EmagerCNNRingStridedQAT` | RingStrided arch + INT8 QAT | 44 K | 0.057 MB§ | 93.9% |
 | `EmagerCNNQuantizedQAT` | INT8 QAT on Base architecture | 562 K | 0.55 MB§ | 93.8% |
 | `EmagerCNNWide` | 64-ch convs, bigger FC | 1.17 M | 4.7 MB | 93.6% |
+| `EmagerCNNRingStridedPTQ` | RingStrided arch + INT8 PTQ | 44 K | 0.057 MB§ | 93.6% |
 | `EmagerCNNRingStrided` | Strided + ring padding on W only | 44 K | 0.18 MB | 93.2% |
 | `EmagerCNNStrided` | Stride=2 collapses spatial | 44 K | 0.18 MB | 93.1% |
 | `EmagerCNNGAP` | Global avg pool, no FC | 36 K | 0.14 MB | 90.4% |
@@ -477,7 +512,12 @@ accurate as episodic, but `f_θ` is not optimized for the distance rule directly
 (`Test_EM_C7_R5`, `Test_EM_C7_R5_02`, `Test_EM_C7_R5_03`), 7 classes × 5 reps each, 10 epochs.
 315 total fits, ~3h 55m wall time at ~45s/fit. See breakdown below. A second batch (225 fits,
 3h 47m, same protocol, run 2026-07-03) covers `EmagerCNNCircular` (re-measure), `RingStrided`,
-`QuantizedPTQ`, `QuantizedQAT`, `RingStridedQAT` — the raw log is in `RESULTS_LOG.md`.
+`QuantizedPTQ`, `QuantizedQAT`, `RingStridedQAT` — the raw log is in `RESULTS_LOG.md`. A third
+batch (45 fits, 1h 0m, same host/protocol, run 2026-07-15) adds `EmagerCNNRingStridedPTQ`. Note:
+that run's `RESULTS_LOG.md` latency (2.19 ms) is inflated by CPU contention with a concurrent job
+and is **not** comparable to the other rows' latencies — its accuracy / params / size / MACs are
+deterministic and unaffected (true latency should track `RingStridedQAT`'s ~1.2 ms: identical arch
+and INT8 kernels).
 
 †`EmagerCNNCircular` was re-implemented to use `RingPad2d` (W-circular, H-zero) instead of
 PyTorch's both-axes `padding_mode='circular'`. The number above (94.2%) is the re-measured
@@ -519,6 +559,7 @@ numbers are not directly comparable to the cross-entropy classifiers above. See
 | EmagerCNNRingStridedQAT | 98.5% ± 1.4% | 93.2% ± 4.2% | 89.8% ± 8.3% | 93.9% |
 | EmagerCNNQuantizedQAT‡ | 97.9% ± 3.8% | 92.4% ± 3.8% | 91.0% ± 7.7% | 93.8%‡ |
 | EmagerCNNWide     | 98.7% ± 1.5% | 92.3% ± 3.4% | 89.8% ± 8.7%  | 93.6% |
+| EmagerCNNRingStridedPTQ | 98.5% ± 1.3% | 91.8% ± 4.5% | 90.5% ± 7.9% | 93.6% |
 | EmagerCNNRingStrided | 98.9% ± 0.8% | 90.7% ± 4.8% | 89.9% ± 8.5% | 93.2% |
 | EmagerCNNStrided  | 98.4% ± 1.6% | 90.4% ± 5.5% | 90.4% ± 7.2%  | 93.1% |
 | EmagerCNNGAP      | 93.9% ± 10.2% | 90.7% ± 6.0% | 86.6% ± 9.2% | 90.4% |
@@ -536,7 +577,7 @@ numbers are not directly comparable to the cross-entropy classifiers above. See
 > **EmagerCNNCircular** (re-measured, W-only ring pad): 94.2% overall — **+0.1% above Base**, now the best-performing non-Deep architecture variant, and an improvement over the prior both-axes implementation's 93.7%. Wrapping only the physical electrode-column axis (not the row axis, which doesn't physically loop) is the right call. **EmagerCNNRingStrided** (strided + W-only ring pad): 93.2% overall, essentially matching plain `EmagerCNNStrided` (93.1%) — at 12× fewer params than Base, the ring padding neither helps nor hurts once the spatial dims are already collapsed to (1,4).
 > **EmagerCNNGAP** is the only clear loser: −3.7% vs Base, and a large std on `Test_EM_C7_R5` (±10.2%) — removing the FC hidden layer costs too much capacity.
 > Variance grows on `_02` and `_03` (std up to ±9% on some models) — these splits are noticeably harder than the original `Test_EM_C7_R5`.
-> **Quantization (PTQ / QAT).** Full multi-dataset run: `EmagerCNNQuantizedPTQ` matches Base almost exactly (94.1% vs 94.1%) while shrinking the model ~4× (2.2 MB → 0.55 MB INT8) — quantization is essentially free on this architecture. `EmagerCNNQuantizedQAT` (93.8%) does **not** beat PTQ here — the fake-quant fine-tuning doesn't recover anything PTQ was leaving on the table, so PTQ is the better default unless a future architecture shows a bigger PTQ accuracy drop. `EmagerCNNRingStridedQAT` (93.9%, 44 K params, 0.057 MB) stacks INT8 QAT on the RingStrided collapse for the smallest deployable model in the file, at only −0.2 pp vs plain Base.
+> **Quantization (PTQ / QAT).** Full multi-dataset run: `EmagerCNNQuantizedPTQ` matches Base almost exactly (94.1% vs 94.1%) while shrinking the model ~4× (2.2 MB → 0.55 MB INT8) — quantization is essentially free on this architecture. `EmagerCNNQuantizedQAT` (93.8%) does **not** beat PTQ here — the fake-quant fine-tuning doesn't recover anything PTQ was leaving on the table, so PTQ is the better default unless a future architecture shows a bigger PTQ accuracy drop. `EmagerCNNRingStridedQAT` (93.9%, 44 K params, 0.057 MB) stacks INT8 QAT on the RingStrided collapse for the smallest deployable model in the file, at only −0.2 pp vs plain Base. `EmagerCNNRingStridedPTQ` (93.6%, same 44 K / 0.057 MB) is its PTQ counterpart — completing the {Base, RingStrided} × {PTQ, QAT} grid. On the RingStrided arch QAT edges PTQ by +0.3 pp (93.9% vs 93.6%), the mirror image of the Base-arch result where PTQ edged QAT (94.1% vs 93.8%) — so the two are within noise and quantization stays essentially free on this collapsed arch too. PTQ reaches ~99.7% of QAT's accuracy without the fine-tuning phase, so it is the cheaper default; and vs Base-arch PTQ (94.1%) it trades −0.5 pp accuracy for ~10× smaller weights (58 KB vs 567 KB) and ~18× fewer MACs (152 K vs 2.77 M). Notably PTQ *lifts* plain FP32 RingStrided by +0.4 pp (93.6% vs 93.2%) — INT8 rounding acts as mild regularization here rather than a cost.
 >
 > **Few-shot prototypical (`ProtoEpisodic` / `ProtoCE`).** A different axis again — not *architecture* or *weight precision* but *how classification is done*. The embedding is trained offline; the classifier is just the mean of a few on-device examples per gesture (no on-device backprop). The number to watch is the **before→after 5-shot delta**: how much a quick per-session calibration recovers. Expect the gap to show up only on real multi-session / electrode-shift data (≈ 0 on the synthetic smoke-test). `ProtoEpisodic` trains `f_θ` for the distance rule directly; `ProtoCE` trains a plain classifier and reuses its embedding — compare the two to see whether episodic training is worth it here. The dedicated leave-one-session-out harness (`eval_fewshot_loso.py`) has run once (see `FEWSHOT_LOSO_LOG.md`); this LOO-across-reps table's Overall column is still TBD for both since that eval isn't the right harness to isolate the calibration benefit (see the harness's own docstring for why).
 

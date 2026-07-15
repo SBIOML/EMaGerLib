@@ -46,6 +46,7 @@ MODELS_TO_TEST = [
     # "EmagerCNNGAP",
     "EmagerCNNQuantizedPTQ",      # pending: only 1-dataset/1-seed smoke run so far
     "EmagerCNNQuantizedQAT",      # pending: only smoke-tested so far
+    "EmagerCNNRingStridedPTQ",    # pending: never benchmarked (new — PTQ on RingStrided arch)
     "EmagerCNNRingStridedQAT",    # pending: only smoke-tested so far
     # "EmagerCNNProtoEpisodic",     # few-shot: episodic prototypical training
     # "EmagerCNNProtoCE",           # few-shot: cross-entropy pretrain + computed prototypes

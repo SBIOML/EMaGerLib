@@ -81,8 +81,9 @@ and hardware.
   Lightning + LibEMG interface (`fit` / `predict` / `predict_proba`) via `_EmagerBase`;
   most variants change only `__init__`. There are three subclass families:
   architecture variants (Base/Wide/Deep/Light/Strided/Circular/RingStrided/GAP),
-  an INT8 quantization chain `EmagerCNNQuantizedPTQ → …QAT → …RingStridedQAT` (these
-  override `fit()` to fuse+quantize), and a few-shot prototypical chain
+  an INT8 quantization family `EmagerCNNQuantizedPTQ → …QAT`, with two
+  RingStrided-architecture leaves `…RingStridedPTQ` (subclasses PTQ) / `…RingStridedQAT`
+  (subclasses QAT) (these override `fit()` to fuse+quantize), and a few-shot prototypical chain
   `_EmagerProtoBase → EmagerCNNProtoEpisodic / …ProtoCE` (no learned classifier;
   classify by distance to prototypes computed from a support set).
 

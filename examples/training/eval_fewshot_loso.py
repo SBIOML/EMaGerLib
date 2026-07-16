@@ -68,24 +68,36 @@ full offline cost. Pass --fresh to ignore the cache and retrain.
 
 Cost, and how to keep it down
 -----------------------------
-A full run is hours, but almost none of that is the proto models. The bill is:
+MEASURED on Felix (2026-07-16, CPU): ~9-12 min per offline training, i.e. ~35 min
+for one fold of three models. The bill is dominated by OFFLINE TRAINING, not by the
+calibration sweep:
 
-    CNN + fine-tune : FT_EPOCHS full-batch backprop passes over every support
-                      window, repeated for EVERY k and EVERY fold.  <- the bottleneck
+    offline training: models x sessions x seeds, ~9-12 min each on Felix. <- bottleneck
+    CNN + fine-tune : FT_EPOCHS full-batch passes per k per fold.  ~40 min total.
     proto k-shot    : one forward pass over the support windows + a mean. Negligible.
-    offline training: len(models) x folds, and it is cached.
 
-The 2026-07-15 Felix run took 6h47m almost entirely in the CNN fine-tune sweep
-(9 k-values x 15 folds x 30 epochs over up to 9 reps of windows).
+Felix is ~166k training windows per fold (4 sessions x ~41.6k) against ~24k for the
+EM datasets -- ~7x the data, which is why EST_SECONDS_PER_TRAIN (tuned on EM) badly
+under-predicts here. The 2026-07-15 Felix run's 6h47m was ~45 uncached trainings,
+NOT the fine-tune sweep.
 
-So when you add a proto variant, do NOT re-pay for the CNN baseline -- it is a
-fixed reference that does not move when a new proto model appears. Score the new
-variant on its own and read the CNN rows off an earlier run of the same sessions:
+Three levers, in order of value:
+
+1. STAGE1_SOURCE (automatic, exact). The PTQ variants share their FP32 stage-1
+   weights bit-for-bit with EmagerCNNProtoRingStrided, so the harness trains it once
+   per (fold, seed) and derives the rest in seconds. Without this the 5-variant sweep
+   is ~15h; with it, ~4h. Verified bit-identical -- see STAGE1_SOURCE.
+2. The cache. Offline training depends only on the train sessions, so re-running with
+   a different k range or split costs minutes. Only NEW models pay training cost.
+3. --skip-cnn. Worth ~40 min (the CNN's own training + its fine-tune sweep). Real but
+   secondary -- it does NOT touch the bottleneck. Use it when the CNN rows can be read
+   off an earlier run of the same sessions, since that baseline does not move when a
+   proto variant is added.
 
     --models EmagerCNNProtoRingStridedPTQ --skip-cnn --k 1,3,5
 
-That is ~15 min (15 offline trainings) instead of ~7h. Re-run the CNN baseline
-only when the sessions, the window/MAV pipeline, or MAX_EPOCHS change.
+Re-run the CNN baseline only when the sessions, the window/MAV pipeline, or
+MAX_EPOCHS change.
 
 Usage
 -----
@@ -150,6 +162,27 @@ PROTO_MODELS = [
     "EmagerCNNProtoRingStridedPTQ",     # RingStrided arch, INT8 PTQ — pending
     "EmagerCNNProtoRingStridedQAT",     # RingStrided arch, INT8 QAT — pending
 ]
+
+# Variants whose FP32 stage-1 training is BIT-IDENTICAL to another model's, so it can
+# be trained once and shared instead of repeated.
+#
+# Why it is exact, not an approximation: these subclasses add only QuantStub/DeQuantStub
+# (no parameters -> no RNG draws during __init__) on top of an unchanged backbone and an
+# unchanged episodic loss. After seed_everything(seed) both get the same init, the same
+# shuffled batches and the same forward numerics -- the stubs are no-ops until prepare().
+# So the shared model's weights ARE each variant's post-stage-1 weights; the harness
+# loads them and calls quantize_and_eval() to run only the INT8 stage (seconds).
+#
+# QAT is deliberately absent: it fine-tunes with fake quant, so its weights genuinely
+# differ and it must train on its own.
+#
+# This is the difference between ~4h and ~15h for the 5-variant sweep on Felix, where
+# one offline training is ~9-12 min (166k windows/fold, CPU).
+STAGE1_SOURCE = {
+    "EmagerCNNProtoRingStridedPTQ":             "EmagerCNNProtoRingStrided",
+    "EmagerCNNProtoRingStridedPTQFp32Protos":   "EmagerCNNProtoRingStrided",
+    "EmagerCNNProtoRingStridedPTQSupportCalib": "EmagerCNNProtoRingStrided",
+}
 
 MAX_EPOCHS = 10                # offline embedding / CNN training
 FT_EPOCHS  = 30                # CNN fine-tune steps on the k shots (full-batch)
@@ -291,6 +324,52 @@ def _cache_path(model_name, held_out, seed, train_names):
     return CACHE_DIR / fn
 
 
+def needs_per_k_quant(model_name) -> bool:
+    """
+    True for variants whose quantization depends on the support set, so it cannot be
+    done once per fold and reused across the k sweep.
+
+    Only calib_source="support" does this: its observers see the user's k shots, and k
+    changes inside the sweep. Cheap to honour anyway -- with STAGE1_SOURCE the FP32 base
+    is already in memory, so re-quantizing is fuse+calibrate+convert (seconds), not a
+    retrain.
+    """
+    return getattr(getattr(new_models, model_name), "calib_source", "train") == "support"
+
+
+def uses_fp32_protos(model_name) -> bool:
+    """True for the proto_precision="fp32" ablation: prototypes come from the
+    pre-quantization embedding while classification still runs through INT8."""
+    return getattr(getattr(new_models, model_name), "proto_precision", "int8") == "fp32"
+
+
+def derive_quantized(model_name, base, num_classes, calib_batches):
+    """
+    Build a quantized variant from an already-trained FP32 stage-1 model, skipping
+    stage 1 entirely (see STAGE1_SOURCE for why the weights are interchangeable).
+
+    `base` is left untouched -- its weights are copied out, so the caller can keep
+    using it (e.g. as the FP32 prototype source for the Fp32Protos ablation).
+    """
+    model = getattr(new_models, model_name)(INPUT_SHAPE, num_classes)
+    missing, unexpected = model.load_state_dict(base.state_dict(), strict=False)
+    # The FP32 base and its PTQ subclass have identical parameter trees; anything else
+    # means STAGE1_SOURCE is claiming an equivalence that does not hold.
+    if missing or unexpected:
+        raise RuntimeError(
+            f"STAGE1_SOURCE[{model_name!r}] weights do not match: "
+            f"{len(missing)} missing / {len(unexpected)} unexpected keys. "
+            f"The shared-stage-1 assumption is broken -- check the two classes' __init__."
+        )
+    model.eval()
+    # Calibration data is passed explicitly: this harness owns the support/query split,
+    # so the model must not try to re-derive it from a test_dataloader it never sees.
+    # test_dataloader=None keeps this to the INT8 stage -- prototypes/scoring are the
+    # harness's job (set_protos_and_acc), per k.
+    model.quantize_and_eval(None, None, calib_loader=calib_batches)
+    return model
+
+
 def get_offline_model(model_name, train_mav, train_labels, num_classes, seed,
                       held_out, train_names, use_cache):
     """Train the offline model, or load it from cache if a matching one exists.
@@ -351,10 +430,18 @@ def predict_acc(model, qx, qy):
     return _accuracy(model.predict(qx), qy)
 
 
-def set_protos_and_acc(proto_model, proto_source, qx, qy):
-    """Set prototypes from an iterable of (x, y) batches, then score the query set."""
-    proto_model.prototypes = proto_model._prototypes_from(proto_source)
-    return predict_acc(proto_model, qx, qy)
+def set_protos_and_acc(model, proto_source, qx, qy, proto_src=None):
+    """
+    Set prototypes from an iterable of (x, y) batches, then score the query set.
+
+    proto_src: the model whose embedding COMPUTES the prototypes; defaults to `model`.
+        The proto_precision="fp32" ablation passes the pre-quantization model here, so
+        prototypes come from the FP32 embedding while classification still runs through
+        `model` (INT8). Prototypes are plain (C, D) FP32 tensors either way, so they
+        transfer between the two.
+    """
+    model.prototypes = (proto_src or model)._prototypes_from(proto_source)
+    return predict_acc(model, qx, qy)
 
 
 # ----------------------------------------------------------------------------
@@ -536,14 +623,38 @@ def main(models=None, seeds=None, k_values=None, with_cnn=True,
                 cached_flags.append(c0)
 
             gen_dl = make_loader(train_mav, train_labels, BATCH_TEST, shuffle=False, drop_last=False)
+            # Calibration batches for any variant derived from a shared FP32 stage-1.
+            calib_dl = make_loader(train_mav, train_labels, BATCH_TRAIN, shuffle=False, drop_last=False)
             proto_trained = {}
             for name in models:
-                pm, ci = get_offline_model(name, train_mav, train_labels,
-                                           num_classes, seed, held_out, train_names, use_cache)
-                # generic prototypes (the "factory" floor) from the train sessions
-                before = set_protos_and_acc(pm, gen_dl, qx, qy)
-                floors[f"{_short(name)}_before"].append(before)
-                proto_trained[name] = pm
+                src_name = STAGE1_SOURCE.get(name)
+                if src_name is None:
+                    pm, ci = get_offline_model(name, train_mav, train_labels, num_classes,
+                                               seed, held_out, train_names, use_cache)
+                    base = pm
+                else:
+                    # Train (or load) the shared FP32 stage-1 ONCE, then derive.
+                    base, ci = get_offline_model(src_name, train_mav, train_labels, num_classes,
+                                                 seed, held_out, train_names, use_cache)
+                    pm = None if needs_per_k_quant(name) else derive_quantized(
+                        name, base, num_classes, calib_dl)
+
+                # Prototype source: the FP32 base for the proto_precision="fp32"
+                # ablation, otherwise the (quantized) model itself.
+                proto_src = base if uses_fp32_protos(name) else pm
+
+                if pm is None:
+                    # calib_source="support": quantization depends on k, so it happens
+                    # inside the sweep. A "generic/factory floor" is not defined for it
+                    # -- calibrating observers on the user's own shots means there is no
+                    # factory state to measure. Recorded as NaN, rendered "n/a".
+                    floors[f"{_short(name)}_before"].append(float("nan"))
+                else:
+                    # generic prototypes (the "factory" floor) from the train sessions
+                    before = set_protos_and_acc(pm, gen_dl, qx, qy, proto_src=proto_src)
+                    floors[f"{_short(name)}_before"].append(before)
+
+                proto_trained[name] = (pm, base)
                 cached_flags.append(ci)
 
             src = "cached" if all(cached_flags) else ("trained" if not any(cached_flags) else "mixed")
@@ -570,8 +681,15 @@ def main(models=None, seeds=None, k_values=None, with_cnn=True,
 
                 # Prototypes = mean embedding of the k support reps (no backprop)
                 support_batch = [(torch.from_numpy(sx), torch.from_numpy(sy))]
-                for name, pm in proto_trained.items():
-                    acc = set_protos_and_acc(pm, support_batch, qx, qy)
+                for name, (pm, base) in proto_trained.items():
+                    model = pm
+                    if model is None:
+                        # calib_source="support": re-quantize from the shared FP32 base
+                        # using THIS k's support set as the observer calibration data.
+                        # Cheap (fuse+calibrate+convert), because stage 1 is already done.
+                        model = derive_quantized(name, base, num_classes, support_batch)
+                    proto_src = base if uses_fp32_protos(name) else model
+                    acc = set_protos_and_acc(model, support_batch, qx, qy, proto_src=proto_src)
                     swept[f"{_short(name)}_after"][k].append(acc)
                     bits.append(f"{_variant(name)} {acc:.1%}")
 

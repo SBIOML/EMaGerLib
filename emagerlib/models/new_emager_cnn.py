@@ -1,3 +1,4 @@
+import copy
 import logging
 
 import numpy as np
@@ -935,28 +936,45 @@ class _EmagerProtoBase(_EmagerBase):
             total    += yb.size(0)
         return correct / total, loss_sum / total
 
+    # -- held-out rep → (support, query) --------------------------------------
+    def _split_fewshot(self, test_dataloader):
+        """
+        Held-out rep = "new session": carve out n_shots support examples per class
+        (the on-device calibration set) and keep the rest as the query set.
+
+        Split out of _eval_fewshot so the quantized subclasses can get at the support
+        set *before* they quantize — see EmagerCNNProtoRingStridedPTQ.calib_source.
+        """
+        x, y = self._gather(test_dataloader)
+        return self._split_support_query(x, y, self.n_shots)
+
     # -- generic protos → few-shot protos → report ----------------------------
-    def _eval_fewshot(self, train_dataloader, test_dataloader):
+    def _eval_fewshot(self, train_dataloader, test_dataloader, proto_model=None, split=None):
         """
         Calibrate + score, given an already-trained embedding. Split out of fit()
         so the quantized subclasses can run it *after* converting to INT8 — their
         prototypes must come from the quantized embedding, which is the one the
         device actually runs.
+
+        proto_model: embedding used to COMPUTE the prototypes; defaults to self.
+            The quantized subclasses pass a pre-quantization copy here to run the
+            `proto_precision="fp32"` ablation, while classification still happens
+            through self (the INT8 model).
+        split: precomputed (support, query) from _split_fewshot, when the caller
+            already needed it earlier (e.g. to calibrate observers on the support set).
         """
         if test_dataloader is None:
             return
 
-        # Stage A: held-out rep = "new session". Carve out n_shots support / class
-        # (the on-device calibration set) and keep the rest as the query set.
-        x, y = self._gather(test_dataloader)
-        (sx, sy), (qx, qy) = self._split_support_query(x, y, self.n_shots)
+        proto_model = proto_model if proto_model is not None else self
+        (sx, sy), (qx, qy) = split if split is not None else self._split_fewshot(test_dataloader)
 
         # Stage B: BEFORE few-shot — generic prototypes from the training reps.
-        self.prototypes = self._prototypes_from(train_dataloader)
+        self.prototypes = proto_model._prototypes_from(train_dataloader)
         self.acc_before_fewshot, _ = self._eval(qx, qy)
 
         # Stage C: AFTER few-shot — prototypes from the n_shots support set.
-        self.prototypes = self._prototypes_from([(sx, sy)])
+        self.prototypes = proto_model._prototypes_from([(sx, sy)])
         self.acc_after_fewshot, loss_after = self._eval(qx, qy)
 
         logger.info(f"  [proto] before few-shot (generic protos): acc={self.acc_before_fewshot:.1%}")
@@ -1153,14 +1171,48 @@ class EmagerCNNProtoRingStridedPTQ(EmagerCNNProtoRingStrided):
       5. convert() to INT8, then compute prototypes and report before/after few-shot
 
     Backend defaults to fbgemm (x86 host); set qbackend = "qnnpack" for ARM.
+
+    Strategy knobs (`proto_precision`, `calib_source`)
+    -------------------------------------------------
+    A prototypical model has a *second*, gradient-free training step — computing the
+    prototypes — that a plain classifier does not. That creates timing questions with
+    no equivalent in the PTQ-vs-QAT axis, and they are cheap to test because no
+    backprop is involved. Both knobs default to the deployment-faithful choice; the
+    non-default settings exist to measure whether that choice actually matters. See
+    the two subclasses at the end of this file for the named ablation variants.
     """
     qbackend       = "fbgemm"   # "qnnpack" for ARM (e.g. STM32 / Cortex-M) deployment
     _calib_batches = 10
     # RingPad2d occupies indices 0/4/8; Conv+BN+ReLU triplets are at 1-3, 5-7, 9-11.
     _fuse_groups   = [["1", "2", "3"], ["5", "6", "7"], ["9", "10", "11"]]
 
+    # Which embedding computes the prototypes.
+    #   "int8" (default) — the quantized embedding, i.e. prototypes are means of the
+    #       same INT8 vectors they will be compared against. This is what the device
+    #       does; it has no other network.
+    #   "fp32"  — the pre-quantization embedding. NOT deployable for the on-device
+    #       calibration step (the device has only the INT8 net), so this is an
+    #       ablation, not a shippable strategy: it measures what the prototype/embedding
+    #       space mismatch actually costs. If the two score the same, the ordering
+    #       inside fit() does not matter and the naive order is fine.
+    proto_precision = "int8"    # "int8" | "fp32"
+
+    # What the activation observers calibrate on.
+    #   "train" (default) — batches from the training sessions, at the factory.
+    #   "support" — the held-out session's support set, i.e. the user's own k shots.
+    #       A diagnostic rather than a shippable strategy: TFLite Micro bakes scales
+    #       into the flatbuffer at export, so an MCU cannot re-run observers. What it
+    #       tells you is whether train-set activation ranges transfer to a new session
+    #       — if support-calibrated INT8 is much better, the factory calibration set is
+    #       too narrow and should be widened.
+    calib_source    = "train"   # "train" | "support"
+
     def __init__(self, input_shape: tuple, num_classes: int, lr: float = 1e-3, embed_dim: int = 64):
         super().__init__(input_shape, num_classes, lr, embed_dim)
+        if self.proto_precision not in ("int8", "fp32"):
+            raise ValueError(f"proto_precision must be 'int8' or 'fp32', got {self.proto_precision!r}")
+        if self.calib_source not in ("train", "support"):
+            raise ValueError(f"calib_source must be 'train' or 'support', got {self.calib_source!r}")
         self.quant      = torch.ao.quantization.QuantStub()
         self.dequant    = torch.ao.quantization.DeQuantStub()
         self._quantized = False
@@ -1180,12 +1232,51 @@ class EmagerCNNProtoRingStridedPTQ(EmagerCNNProtoRingStrided):
         )
         trainer.fit(self, train_dataloader)
 
-        # Stage 2: quantize the embedding to INT8 (runs even without a test loader,
-        # so a fit() used purely to produce a deployable model still converts)
-        self._apply_ptq(train_dataloader)
+        # Stages 2-4
+        return self.quantize_and_eval(train_dataloader, test_dataloader)
 
-        # Stage 3: prototypes + before/after report, through the INT8 embedding
-        return self._eval_fewshot(train_dataloader, test_dataloader)
+    def quantize_and_eval(self, train_dataloader, test_dataloader=None, calib_loader=None):
+        """
+        Stages 2-4: quantize an **already-trained** FP32 embedding, then compute
+        prototypes and report before/after few-shot.
+
+        Public, and split out of fit(), because this class's FP32 stage-1 weights are
+        bit-identical to `EmagerCNNProtoRingStrided`'s for the same seed: same backbone,
+        same episodic loss, same data order, and the Quant/DeQuant stubs hold no
+        parameters so they draw no RNG during init and are no-ops in FP32. A benchmark
+        harness can therefore train stage 1 **once** per (fold, seed), load the weights
+        into each PTQ variant, and call this — turning N trainings into 1 with no
+        approximation. See STAGE1_SOURCE in examples/training/eval_fewshot_loso.py.
+
+        calib_loader: explicit observer-calibration batches. When given, `calib_source`
+            is not consulted — the caller has already decided what to calibrate on. This
+            is how a harness that owns the support/query split itself feeds the support
+            set in without handing over a test_dataloader.
+        """
+        # Both strategy knobs have to be settled BEFORE convert(): the "fp32" prototype
+        # source needs a copy of the un-quantized embedding, and "support" calibration
+        # needs the held-out split in hand.
+        proto_model = copy.deepcopy(self) if self.proto_precision == "fp32" else None
+        split       = self._split_fewshot(test_dataloader) if test_dataloader is not None else None
+        if calib_loader is None:
+            calib_loader = train_dataloader
+            if self.calib_source == "support":
+                if split is None:
+                    raise ValueError(
+                        "calib_source='support' needs either a test_dataloader to draw the "
+                        "support set from, or an explicit calib_loader"
+                    )
+                (sx, sy), _ = split
+                calib_loader = [(sx, sy)]
+
+        # Quantize the embedding to INT8 (runs even without a test loader, so a fit()
+        # used purely to produce a deployable model still converts)
+        self._apply_ptq(calib_loader)
+
+        # Prototypes + before/after report. Classification always runs through self
+        # (the INT8 model); only the prototype *source* varies.
+        return self._eval_fewshot(train_dataloader, test_dataloader,
+                                  proto_model=proto_model, split=split)
 
     def _apply_ptq(self, calib_loader):
         import torch.ao.quantization as taq
@@ -1261,6 +1352,18 @@ class EmagerCNNProtoRingStridedQAT(EmagerCNNProtoRingStridedPTQ):
     def fit(self, train_dataloader, test_dataloader=None, max_epochs: int = 10):
         import torch.ao.quantization as taq
 
+        # The PTQ strategy knobs do not carry over, so refuse them rather than
+        # silently ignore: QAT has no separate observer-calibration pass (ranges are
+        # learned during fine-tuning on train_dataloader, so calib_source is not a
+        # choice), and its pre-convert model is already fake-quantized, so "fp32"
+        # prototypes would not be FP32 in any meaningful sense.
+        if self.proto_precision != "int8" or self.calib_source != "train":
+            raise ValueError(
+                f"{type(self).__name__} does not support proto_precision="
+                f"{self.proto_precision!r} / calib_source={self.calib_source!r}; "
+                "those knobs are PTQ-only. Use EmagerCNNProtoRingStridedPTQ to vary them."
+            )
+
         # Stage 1: FP32 episodic warm start
         trainer = L.Trainer(
             max_epochs=max_epochs,
@@ -1301,3 +1404,64 @@ class EmagerCNNProtoRingStridedQAT(EmagerCNNProtoRingStridedPTQ):
         taq.fuse_modules_qat(self.features, self._fuse_groups, inplace=True)
         self.qconfig = taq.get_default_qat_qconfig(self.qbackend)
         taq.prepare_qat(self, inplace=True)
+
+
+# ==============================================================================
+#  Quantization-timing ablations (PTQ only)
+#  Named variants of EmagerCNNProtoRingStridedPTQ that flip one strategy knob each,
+#  so the benchmark harness can select them by name. Neither is a shippable
+#  strategy -- both exist to measure whether the default was the right call.
+# ==============================================================================
+
+class EmagerCNNProtoRingStridedPTQFp32Protos(EmagerCNNProtoRingStridedPTQ):
+    """
+    Ablation: compute prototypes from the **FP32** embedding instead of the INT8 one.
+
+    Everything else matches `EmagerCNNProtoRingStridedPTQ` — classification still runs
+    through the INT8 embedding. Only the prototype source changes: fit() keeps a copy of
+    the un-quantized model and computes both the generic and the k-shot prototypes
+    through it.
+
+    **This is not deployable**, and that is the point. On device there is only the INT8
+    network, so on-device calibration cannot produce FP32 prototypes. The variant exists
+    to isolate one question the default answers by assumption:
+
+        Does it matter that prototypes are means of the *same* INT8 vectors they are
+        later compared against?
+
+    Read it against `EmagerCNNProtoRingStridedPTQ`:
+      - **Same accuracy** -> the space mismatch is negligible, the ordering inside fit()
+        is not load-bearing, and the naive order would have been fine.
+      - **INT8 protos better** -> computing prototypes after convert() is doing real
+        work, and the default is correct.
+      - **FP32 protos better** -> INT8 embedding noise hurts the prototype means more
+        than the mismatch costs. That would argue for shipping FP32-derived *generic*
+        prototypes from the factory (legal — those are computed at the factory), even
+        though on-device recalibration must stay INT8.
+    """
+    proto_precision = "fp32"
+
+
+class EmagerCNNProtoRingStridedPTQSupportCalib(EmagerCNNProtoRingStridedPTQ):
+    """
+    Diagnostic: calibrate the activation observers on the held-out session's **support
+    set** (the user's own k shots) instead of on the training sessions.
+
+    Everything else matches `EmagerCNNProtoRingStridedPTQ`, prototypes included (still
+    INT8). Only the data the observers see while picking activation scales/zero-points
+    changes.
+
+    **Not directly shippable**: TFLite Micro bakes quantization scales into the
+    flatbuffer at export time, so an MCU cannot re-run observers against user data. What
+    this measures is whether factory-calibrated activation ranges *transfer* to a new
+    session:
+
+      - **Same accuracy** -> train-session ranges cover a new session fine; nothing to do.
+      - **Support-calibrated better** -> the factory calibration set is too narrow. That
+        is actionable without any on-device work: widen the calibration set (more
+        sessions / subjects) or switch to a percentile/histogram observer — both are
+        export-time changes.
+
+    Requires a test_dataloader in fit(); there is no support set without one.
+    """
+    calib_source = "support"

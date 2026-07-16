@@ -465,6 +465,11 @@ def set_protos_and_acc(model, proto_source, qx, qy, proto_src=None):
 #  Reporting
 # ----------------------------------------------------------------------------
 
+def _pct(v):
+    """Percent for log lines; NaN (an undefined metric, not a zero) renders as n/a."""
+    return "n/a" if (isinstance(v, float) and np.isnan(v)) else f"{v:.1%}"
+
+
 def _agg(vals):
     vals = [v for v in vals if not (isinstance(v, float) and np.isnan(v))]
     if not vals:
@@ -677,8 +682,8 @@ def main(models=None, seeds=None, k_values=None, with_cnn=True,
                 cached_flags.append(ci)
 
             src = "cached" if all(cached_flags) else ("trained" if not any(cached_flags) else "mixed")
-            floor_bits = ([f"CNN {floors['cnn_zeroshot'][-1]:.1%}"] if with_cnn else [])
-            floor_bits += [f"{_variant(n)} {floors[_short(n)+'_before'][-1]:.1%}" for n in models]
+            floor_bits = ([f"CNN {_pct(floors['cnn_zeroshot'][-1])}"] if with_cnn else [])
+            floor_bits += [f"{_variant(n)} {_pct(floors[_short(n)+'_before'][-1])}" for n in models]
             logger.info(f"  offline models: {src}  |  floors -> " + "  ".join(floor_bits))
 
             # -- k sweep (calibration), k = number of support reps -----------

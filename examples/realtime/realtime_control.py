@@ -2,7 +2,6 @@ from multiprocessing.connection import Connection
 from multiprocessing import Process, Pipe
 import time
 from collections import deque, Counter
-from statistics import mean
 from pathlib import Path
 import logging
 
@@ -90,7 +89,12 @@ def run_controller_process(conn: Connection = None, cfg=None):
                                     smoothed_pred = v
                                     break
                         elif cfg.SMOOTH_METHOD == 'mean':
-                            smoothed_pred = int(round(mean(recent)))
+                            # sum()/len() rather than statistics.mean(): mean() does exact
+                            # rational arithmetic to protect float precision, which costs
+                            # ~14us vs ~0.8us here and buys nothing -- `recent` holds a
+                            # handful of small integer class labels. `recent` is non-empty
+                            # (guarded above), so the division is safe.
+                            smoothed_pred = int(round(sum(recent) / len(recent)))
                         else:
                             smoothed_pred = recent[-1]
                     else:

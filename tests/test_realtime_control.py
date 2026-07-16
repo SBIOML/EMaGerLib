@@ -4,13 +4,29 @@ import unittest
 import time
 import threading
 from collections import deque, Counter
-from statistics import mean
+from statistics import mean, median
 from unittest.mock import Mock, patch, MagicMock
 import sys
 from pathlib import Path
 
 # Add project to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+def typical_us(timings):
+    """
+    Typical (median) per-call cost from a list of wall-clock samples in microseconds.
+
+    Median rather than mean. These loops time operations costing ~1us each, so a
+    single OS scheduler preemption lands whole in the mean: one 10ms stall across
+    1k samples shifts the mean by 10us on its own, which is enough to fail a 12us
+    threshold on a perfectly healthy machine that merely had another process running.
+    The median reports the typical cost the thresholds are actually about, and it
+    matches the median-latency convention already used by train_cnn_benchmark.py.
+
+    Outliers are still surfaced -- every caller prints max alongside this.
+    """
+    return median(timings)
 
 
 class TestSharedMemoryCommunication(unittest.TestCase):
@@ -30,12 +46,12 @@ class TestSharedMemoryCommunication(unittest.TestCase):
             elapsed = time.perf_counter() - start
             timings.append(elapsed * 1000000)  # microseconds
         
-        avg_time = mean(timings)
+        typical = typical_us(timings)
         max_time = max(timings)
-        
-        # Should be very fast (< 10µs on average)
-        self.assertLess(avg_time, 10.0)
-        print(f"[PASS] Mock shared memory read: avg {avg_time:.2f}us, max {max_time:.2f}us")
+
+        # Should be very fast (< 10µs typical)
+        self.assertLess(typical, 10.0)
+        print(f"[PASS] Mock shared memory read: median {typical:.2f}us, max {max_time:.2f}us")
     
     def test_02_predictor_controller_latency(self):
         """Test end-to-end latency from prediction to read"""
@@ -123,12 +139,12 @@ class TestSmoothingPerformance(unittest.TestCase):
                 elapsed = time.perf_counter() - start
                 timings.append(elapsed * 1000000)  # microseconds
         
-        avg_time = mean(timings)
+        typical = typical_us(timings)
         max_time = max(timings)
-        
-        # Should be fast (< 20µs average)
-        self.assertLess(avg_time, 20.0)
-        print(f"[PASS] Mode smoothing: avg {avg_time:.2f}us, max {max_time:.2f}us per prediction")
+
+        # Should be fast (< 20µs typical)
+        self.assertLess(typical, 20.0)
+        print(f"[PASS] Mode smoothing: median {typical:.2f}us, max {max_time:.2f}us per prediction")
     
     def test_02_mean_smoothing_speed(self):
         """Test mean smoothing execution speed"""
@@ -140,16 +156,20 @@ class TestSmoothingPerformance(unittest.TestCase):
             recent.append(value)
             if len(recent) > 1:
                 start = time.perf_counter()
-                smoothed = int(round(mean(recent)))
+                # Mean smoothing algorithm from realtime_control.py. Mirrors it exactly:
+                # sum()/len(), NOT statistics.mean(). This test is what caught that the
+                # real path used statistics.mean() at ~14us/prediction -- 18x the cost of
+                # sum()/len() for identical results on small int labels.
+                smoothed = int(round(sum(recent) / len(recent)))
                 elapsed = time.perf_counter() - start
                 timings.append(elapsed * 1000000)  # microseconds
         
-        avg_time = mean(timings)
+        typical = typical_us(timings)
         max_time = max(timings)
-        
-        # Should be very fast (< 12µs average)
-        self.assertLess(avg_time, 12.0)
-        print(f"[PASS] Mean smoothing: avg {avg_time:.2f}us, max {max_time:.2f}us per prediction")
+
+        # Should be very fast (< 12µs typical)
+        self.assertLess(typical, 12.0)
+        print(f"[PASS] Mean smoothing: median {typical:.2f}us, max {max_time:.2f}us per prediction")
     
     def test_03_last_smoothing_speed(self):
         """Test last-value smoothing (no smoothing) speed"""
@@ -164,12 +184,14 @@ class TestSmoothingPerformance(unittest.TestCase):
             elapsed = time.perf_counter() - start
             timings.append(elapsed * 1000000)  # microseconds
         
-        avg_time = mean(timings)
+        typical = typical_us(timings)
         max_time = max(timings)
-        
-        # Should be extremely fast (< 1µs average)
-        self.assertLess(avg_time, 1.0)
-        print(f"[PASS] Last smoothing: avg {avg_time:.2f}us, max {max_time:.2f}us per prediction")
+
+        # Should be extremely fast (< 1µs typical). Note this is close to the floor of
+        # what perf_counter can resolve -- the deque read itself is tens of nanoseconds,
+        # so a good part of what is measured here is the timer call overhead.
+        self.assertLess(typical, 1.0)
+        print(f"[PASS] Last smoothing: median {typical:.2f}us, max {max_time:.2f}us per prediction")
     
     def test_04_window_size_impact(self):
         """Test impact of window size on smoothing performance"""
@@ -195,7 +217,7 @@ class TestSmoothingPerformance(unittest.TestCase):
                     elapsed = time.perf_counter() - start
                     timings.append(elapsed * 1000000)
             
-            results[window_size] = mean(timings) if timings else 0
+            results[window_size] = typical_us(timings) if timings else 0
         
         # Larger windows should still be reasonable (< 50µs)
         for size, avg_time in results.items():

@@ -66,12 +66,35 @@ k or the shot definition. Trained models are cached under benchmark_results/
 model_cache/, so re-running with a different k range / split is minutes, not the
 full offline cost. Pass --fresh to ignore the cache and retrain.
 
+Cost, and how to keep it down
+-----------------------------
+A full run is hours, but almost none of that is the proto models. The bill is:
+
+    CNN + fine-tune : FT_EPOCHS full-batch backprop passes over every support
+                      window, repeated for EVERY k and EVERY fold.  <- the bottleneck
+    proto k-shot    : one forward pass over the support windows + a mean. Negligible.
+    offline training: len(models) x folds, and it is cached.
+
+The 2026-07-15 Felix run took 6h47m almost entirely in the CNN fine-tune sweep
+(9 k-values x 15 folds x 30 epochs over up to 9 reps of windows).
+
+So when you add a proto variant, do NOT re-pay for the CNN baseline -- it is a
+fixed reference that does not move when a new proto model appears. Score the new
+variant on its own and read the CNN rows off an earlier run of the same sessions:
+
+    --models EmagerCNNProtoRingStridedPTQ --skip-cnn --k 1,3,5
+
+That is ~15 min (15 offline trainings) instead of ~7h. Re-run the CNN baseline
+only when the sessions, the window/MAV pipeline, or MAX_EPOCHS change.
+
 Usage
 -----
-    python examples/training/eval_fewshot_loso.py
-    python examples/training/eval_fewshot_loso.py --quick      # 1 seed, k in {1,2}
-    python examples/training/eval_fewshot_loso.py --plot       # also save a PNG curve
-    python examples/training/eval_fewshot_loso.py --fresh      # ignore cached models
+    python examples/training/eval_fewshot_loso.py                    # everything
+    python examples/training/eval_fewshot_loso.py --quick            # plumbing check
+    python examples/training/eval_fewshot_loso.py --models A,B --skip-cnn --k 1,3,5
+    python examples/training/eval_fewshot_loso.py --plot             # also save a PNG curve
+    python examples/training/eval_fewshot_loso.py --fresh            # ignore cached models
+    python examples/training/eval_fewshot_loso.py --help
 """
 
 import sys
@@ -118,7 +141,15 @@ K_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9]     # calibration REPETITIONS per class (
                                             # Felix sessions have 10 reps each vs EM's 5, hence the wider sweep)
 
 CNN_MODEL    = "EmagerCNNBase"
-PROTO_MODELS = ["EmagerCNNProtoEpisodic", "EmagerCNNProtoCE"]
+# Default set. Override per-run with --models; the deployment-line variants below
+# are the RingStrided (smallest arch) branch, PTQ/QAT being the INT8 leaves.
+PROTO_MODELS = [
+    "EmagerCNNProtoEpisodic",           # Base arch, episodic       — measured (EM + Felix)
+    "EmagerCNNProtoCE",                 # Base arch, cross-entropy  — measured (EM + Felix)
+    "EmagerCNNProtoRingStrided",        # RingStrided arch, FP32     — pending
+    "EmagerCNNProtoRingStridedPTQ",     # RingStrided arch, INT8 PTQ — pending
+    "EmagerCNNProtoRingStridedQAT",     # RingStrided arch, INT8 QAT — pending
+]
 
 MAX_EPOCHS = 10                # offline embedding / CNN training
 FT_EPOCHS  = 30                # CNN fine-tune steps on the k shots (full-batch)
@@ -143,18 +174,36 @@ CACHE_DIR   = RESULTS_DIR / "model_cache"
 #  Pretty names for the output tables
 # ----------------------------------------------------------------------------
 
-def _short(model_name: str) -> str:
-    """EmagerCNNProtoEpisodic -> protoEp ; EmagerCNNProtoCE -> protoCE."""
-    return "proto" + model_name.replace("EmagerCNNProto", "")[:2]
+def _variant(model_name: str) -> str:
+    """EmagerCNNProtoRingStridedPTQ -> RingStridedPTQ."""
+    return model_name.replace("EmagerCNNProto", "")
 
-LABELS = {
+
+def _short(model_name: str) -> str:
+    """
+    Result-dict key for a proto model: EmagerCNNProtoEpisodic -> protoEpisodic.
+
+    Must keep the variant name whole. An earlier version truncated it to 2 chars
+    ("protoEp" / "protoCE"), which silently collided once the RingStrided family
+    arrived -- RingStrided, RingStridedPTQ and RingStridedQAT all mapped to
+    "protoRi" and would have merged into each other's results.
+    """
+    return "proto" + _variant(model_name)
+
+
+CNN_LABELS = {
     "cnn_zeroshot": "CNN (zero-shot)",
     "cnn_finetune": "CNN + fine-tune",
 }
-for _m in PROTO_MODELS:
-    _variant = _m.replace("EmagerCNNProto", "")          # "Episodic" / "CE"
-    LABELS[f"{_short(_m)}_before"] = f"Proto-{_variant} (generic)"
-    LABELS[f"{_short(_m)}_after"]  = f"Proto-{_variant} (k-shot)"
+
+
+def label_for(key: str) -> str:
+    """Pretty table label for a result key."""
+    if key in CNN_LABELS:
+        return CNN_LABELS[key]
+    body, _, suffix = key.rpartition("_")
+    kind = "generic" if suffix == "before" else "k-shot"
+    return f"Proto-{body.replace('proto', '', 1)} ({kind})"
 
 
 # ----------------------------------------------------------------------------
@@ -213,6 +262,19 @@ def train_offline(model_name, train_mav, train_labels, num_classes, seed):
     return model
 
 
+def _is_quantized_family(model_name) -> bool:
+    """
+    True for the INT8 variants (anything descending from EmagerCNNQuantizedPTQ or
+    carrying its qbackend attribute).
+
+    These restructure *themselves* during fit() -- fuse Conv+BN+ReLU, fold BN, then
+    convert() to packed INT8 modules -- so a freshly constructed FP32 instance has a
+    completely different module tree and cannot accept their state_dict. They are
+    cached as whole pickled objects instead of state_dicts; see get_offline_model.
+    """
+    return hasattr(getattr(new_models, model_name), "qbackend")
+
+
 def _cache_path(model_name, held_out, seed, train_names):
     """Cache key = everything that determines the offline weights. Shot/k are NOT
     in it: offline training is independent of the calibration protocol."""
@@ -221,8 +283,11 @@ def _cache_path(model_name, held_out, seed, train_names):
     # Session names may contain "/" (e.g. "Felix_5sessions/S_0") when a dataset
     # groups sessions in subfolders -- sanitize so the cache key stays a flat filename.
     ho = held_out.replace("/", "_").replace("\\", "_")
+    # Quantized variants are pickled whole; the distinct suffix keeps the two cache
+    # formats from ever being loaded as each other.
+    ext = "full.pt" if _is_quantized_family(model_name) else "pt"
     fn = (f"{model_name}__ho-{ho}__seed{seed}__ep{MAX_EPOCHS}"
-          f"__w{WINDOW_SIZE}-{WINDOW_INCREMENT}__sr{SAMPLING}__tr{tr}.pt")
+          f"__w{WINDOW_SIZE}-{WINDOW_INCREMENT}__sr{SAMPLING}__tr{tr}.{ext}")
     return CACHE_DIR / fn
 
 
@@ -231,16 +296,33 @@ def get_offline_model(model_name, train_mav, train_labels, num_classes, seed,
     """Train the offline model, or load it from cache if a matching one exists.
     Returns (model, was_cached)."""
     path = _cache_path(model_name, held_out, seed, train_names)
+    whole = _is_quantized_family(model_name)
+
     if use_cache and path.exists():
-        model = getattr(new_models, model_name)(INPUT_SHAPE, num_classes)
-        if hasattr(model, "_ce_head"):
-            model._ce_head = None   # match the post-fit state (head dropped) so keys align
-        model.load_state_dict(torch.load(path, map_location="cpu"), strict=False)
+        if whole:
+            model = torch.load(path, map_location="cpu", weights_only=False)
+        else:
+            model = getattr(new_models, model_name)(INPUT_SHAPE, num_classes)
+            if hasattr(model, "_ce_head"):
+                model._ce_head = None   # match the post-fit state (head dropped) so keys align
+            incompatible = model.load_state_dict(
+                torch.load(path, map_location="cpu"), strict=False)
+            # strict=False is needed for the dropped CE head, but it also means a
+            # structurally mismatched cache would load NOTHING and silently hand back
+            # a randomly initialised model. Fail loudly instead.
+            if incompatible.missing_keys or incompatible.unexpected_keys:
+                raise RuntimeError(
+                    f"Stale/incompatible cached model for {model_name} at {path.name}: "
+                    f"{len(incompatible.missing_keys)} missing / "
+                    f"{len(incompatible.unexpected_keys)} unexpected keys. "
+                    f"Delete it or re-run with --fresh."
+                )
         model.eval()
         return model, True
+
     model = train_offline(model_name, train_mav, train_labels, num_classes, seed)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), path)
+    torch.save(model if whole else model.state_dict(), path)
     return model, False
 
 
@@ -293,27 +375,34 @@ def _cell(vals):
     return f"{m:.1%} ± {s:.1%}"
 
 
-def build_markdown(floors, swept, k_values, n_folds, elapsed):
+def build_markdown(floors, swept, models, seeds, k_values, n_folds, elapsed, with_cnn):
     L = []
     L.append(f"## {datetime.now():%Y-%m-%d %H:%M:%S}  — Few-shot LOSO\n")
     L.append(f"- **Sessions (leave-one-out):** {', '.join(SESSIONS)}")
-    L.append(f"- **Seeds:** {SEEDS}  |  **k (calibration reps/class):** {k_values}  "
+    L.append(f"- **Models:** {', '.join(models)}")
+    L.append(f"- **Seeds:** {seeds}  |  **k (calibration reps/class):** {k_values}  "
              f"(1 shot = 1 repetition; 1 rep held out as query)")
-    ft = f"{FT_EPOCHS} epochs @ lr {FT_LR} (full model)"
-    L.append(f"- **Fine-tune:** {ft}")
+    if with_cnn:
+        L.append(f"- **Fine-tune:** {FT_EPOCHS} epochs @ lr {FT_LR} (full model)")
+    else:
+        L.append("- **Fine-tune:** _CNN baseline skipped (--skip-cnn) — see an earlier "
+                 "run of the same sessions for the CNN rows_")
     L.append(f"- **Offline:** {MAX_EPOCHS} epochs  |  Window {WINDOW_SIZE}/{WINDOW_INCREMENT}  "
              f"|  Sampling {SAMPLING}  |  Batch {BATCH_TRAIN}/{BATCH_TEST}")
-    L.append(f"- **Folds:** {len(SESSIONS)} sessions × {len(SEEDS)} seeds = {n_folds} evals/method")
+    L.append(f"- **Folds:** {len(SESSIONS)} sessions × {len(seeds)} seeds = {n_folds} evals/method")
     host = f"cpu · torch {torch.__version__} · py {sys.version.split()[0]} · {platform.platform()}"
     L.append(f"- **Host:** {host}")
     L.append(f"- **Elapsed:** {fmt_duration(elapsed)}\n")
+
+    floor_keys = (["cnn_zeroshot"] if with_cnn else []) + [f"{_short(m)}_before" for m in models]
+    cal_keys   = (["cnn_finetune"] if with_cnn else []) + [f"{_short(m)}_after"  for m in models]
 
     # -- Floors --
     L.append("**Floors (no calibration, k-independent)**\n")
     L.append("| Method | Acc |")
     L.append("|---|---|")
-    for key in ["cnn_zeroshot"] + [f"{_short(m)}_before" for m in PROTO_MODELS]:
-        L.append(f"| {LABELS[key]} | {_cell(floors[key])} |")
+    for key in floor_keys:
+        L.append(f"| {label_for(key)} | {_cell(floors[key])} |")
     L.append("")
 
     # -- Calibrated vs k --
@@ -321,28 +410,26 @@ def build_markdown(floors, swept, k_values, n_folds, elapsed):
     header = "| Method | " + " | ".join(f"k={k} rep" for k in k_values) + " |"
     L.append(header)
     L.append("|" + "---|" * (len(k_values) + 1))
-    cal_keys = ["cnn_finetune"] + [f"{_short(m)}_after" for m in PROTO_MODELS]
     for key in cal_keys:
         cells = " | ".join(_cell(swept[key][k]) for k in k_values)
-        L.append(f"| {LABELS[key]} | {cells} |")
+        L.append(f"| {label_for(key)} | {cells} |")
     L.append("")
 
     # -- Calibration lift (mean after - mean floor) --
     L.append("**Calibration lift (Δ accuracy vs each method's own floor, mean)**\n")
     L.append(header.replace("Method", "Method (vs floor)"))
     L.append("|" + "---|" * (len(k_values) + 1))
-    lift_pairs = [("cnn_finetune", "cnn_zeroshot")]
-    for m in PROTO_MODELS:
-        lift_pairs.append((f"{_short(m)}_after", f"{_short(m)}_before"))
+    lift_pairs = ([("cnn_finetune", "cnn_zeroshot")] if with_cnn else [])
+    lift_pairs += [(f"{_short(m)}_after", f"{_short(m)}_before") for m in models]
     for after_key, floor_key in lift_pairs:
         floor_mean = _agg(floors[floor_key])[0]
         cells = " | ".join(f"{_agg(swept[after_key][k])[0] - floor_mean:+.1%}" for k in k_values)
-        L.append(f"| {LABELS[after_key]} | {cells} |")
+        L.append(f"| {label_for(after_key)} | {cells} |")
     L.append("")
     return "\n".join(L)
 
 
-def save_plot(floors, swept, k_values, path):
+def save_plot(floors, swept, models, k_values, path, with_cnn):
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -352,11 +439,11 @@ def save_plot(floors, swept, k_values, path):
         return None
 
     fig, ax = plt.subplots(figsize=(7, 5))
-    for key in ["cnn_finetune"] + [f"{_short(m)}_after" for m in PROTO_MODELS]:
+    for key in (["cnn_finetune"] if with_cnn else []) + [f"{_short(m)}_after" for m in models]:
         means = [_agg(swept[key][k])[0] for k in k_values]
-        ax.plot(k_values, means, marker="o", label=LABELS[key])
-    for key in ["cnn_zeroshot"] + [f"{_short(m)}_before" for m in PROTO_MODELS]:
-        ax.axhline(_agg(floors[key])[0], ls="--", alpha=0.6, label=LABELS[key])
+        ax.plot(k_values, means, marker="o", label=label_for(key))
+    for key in (["cnn_zeroshot"] if with_cnn else []) + [f"{_short(m)}_before" for m in models]:
+        ax.axhline(_agg(floors[key])[0], ls="--", alpha=0.6, label=label_for(key))
     ax.set_xlabel("calibration repetitions per class (k)")
     ax.set_ylabel("query accuracy")
     ax.set_title("Few-shot calibration vs k reps (leave-one-session-out)")
@@ -372,20 +459,30 @@ def save_plot(floors, swept, k_values, path):
 #  Main
 # ----------------------------------------------------------------------------
 
-def main(make_plot=False, use_cache=True):
+def main(models=None, seeds=None, k_values=None, with_cnn=True,
+         make_plot=False, use_cache=True):
     try:
         sys.stdout.reconfigure(encoding="utf-8")   # so ± / · render on Windows consoles
     except (AttributeError, ValueError):
         pass
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-    k_values = sorted(set(K_VALUES))
-    n_folds  = len(SESSIONS) * len(SEEDS)
-    n_trains = n_folds * (1 + len(PROTO_MODELS))
-    logger.info(f"Planned: {n_folds} folds (LOSO) × {1 + len(PROTO_MODELS)} models "
+    models   = list(models) if models else list(PROTO_MODELS)
+    seeds    = list(seeds)  if seeds  else list(SEEDS)
+    k_values = sorted(set(k_values if k_values else K_VALUES))
+
+    n_folds  = len(SESSIONS) * len(seeds)
+    n_trains = n_folds * (len(models) + (1 if with_cnn else 0))
+    logger.info(f"Planned: {n_folds} folds (LOSO) × {len(models) + (1 if with_cnn else 0)} models "
                 f"= {n_trains} offline trainings; k sweep {k_values} reps/class")
+    logger.info(f"Proto models: {', '.join(models)}")
+    if with_cnn:
+        logger.info(f"CNN baseline: on ({CNN_MODEL}; zero-shot floor + {FT_EPOCHS}-epoch fine-tune per k)")
+    else:
+        logger.info("CNN baseline: OFF (--skip-cnn) — proto models only")
     logger.info(f"Caching: {'on' if use_cache else 'OFF (--fresh)'} -> {CACHE_DIR}")
-    logger.info(f"Estimated wall time (uncached): ~{fmt_duration(n_trains * EST_SECONDS_PER_TRAIN)}")
+    logger.info(f"Estimated wall time (uncached): ~{fmt_duration(n_trains * EST_SECONDS_PER_TRAIN)}"
+                + ("" if with_cnn else "  (+ no CNN fine-tune sweep, the usual bottleneck)"))
 
     start = time.perf_counter()
 
@@ -400,11 +497,11 @@ def main(make_plot=False, use_cache=True):
         logger.info(f"  {name}: {mav.shape[0]:,} windows, {C} classes, {len(np.unique(reps))} reps")
 
     # -- Result accumulators --------------------------------------------------
-    floors = {"cnn_zeroshot": []}
-    for m in PROTO_MODELS:
+    floors = {"cnn_zeroshot": []} if with_cnn else {}
+    for m in models:
         floors[f"{_short(m)}_before"] = []
-    swept = {"cnn_finetune": {k: [] for k in k_values}}
-    for m in PROTO_MODELS:
+    swept = {"cnn_finetune": {k: [] for k in k_values}} if with_cnn else {}
+    for m in models:
         swept[f"{_short(m)}_after"] = {k: [] for k in k_values}
 
     # -- Leave-one-session-out ------------------------------------------------
@@ -415,7 +512,7 @@ def main(make_plot=False, use_cache=True):
         train_labels = np.concatenate([sessions[s][1] for s in train_names])
         test_mav, test_labels, test_reps = sessions[held_out]
 
-        for seed in SEEDS:
+        for seed in seeds:
             fold_i += 1
             tag = f"[fold {fold_i}/{n_folds}] held-out={held_out} seed={seed}"
             logger.info("=" * 60)
@@ -431,13 +528,16 @@ def main(make_plot=False, use_cache=True):
                         f"support reps (ordered): {support_pool}")
 
             # -- Offline models (cached; reused across all k) -----------------
-            cnn, c0 = get_offline_model(CNN_MODEL, train_mav, train_labels,
-                                        num_classes, seed, held_out, train_names, use_cache)
-            floors["cnn_zeroshot"].append(predict_acc(cnn, qx, qy))
+            cnn, cached_flags = None, []
+            if with_cnn:
+                cnn, c0 = get_offline_model(CNN_MODEL, train_mav, train_labels,
+                                            num_classes, seed, held_out, train_names, use_cache)
+                floors["cnn_zeroshot"].append(predict_acc(cnn, qx, qy))
+                cached_flags.append(c0)
 
             gen_dl = make_loader(train_mav, train_labels, BATCH_TEST, shuffle=False, drop_last=False)
-            proto_trained, cached_flags = {}, [c0]
-            for name in PROTO_MODELS:
+            proto_trained = {}
+            for name in models:
                 pm, ci = get_offline_model(name, train_mav, train_labels,
                                            num_classes, seed, held_out, train_names, use_cache)
                 # generic prototypes (the "factory" floor) from the train sessions
@@ -447,10 +547,9 @@ def main(make_plot=False, use_cache=True):
                 cached_flags.append(ci)
 
             src = "cached" if all(cached_flags) else ("trained" if not any(cached_flags) else "mixed")
-            logger.info(f"  offline models: {src}  |  floors -> "
-                        f"CNN {floors['cnn_zeroshot'][-1]:.1%}  "
-                        + "  ".join(f"{_short(n)} {floors[_short(n)+'_before'][-1]:.1%}"
-                                    for n in PROTO_MODELS))
+            floor_bits = ([f"CNN {floors['cnn_zeroshot'][-1]:.1%}"] if with_cnn else [])
+            floor_bits += [f"{_variant(n)} {floors[_short(n)+'_before'][-1]:.1%}" for n in models]
+            logger.info(f"  offline models: {src}  |  floors -> " + "  ".join(floor_bits))
 
             # -- k sweep (calibration), k = number of support reps -----------
             k_values_fold = [k for k in k_values if k <= len(support_pool)]
@@ -458,25 +557,30 @@ def main(make_plot=False, use_cache=True):
                 s_idx  = support_indices(test_reps, support_pool, k)
                 sx, sy = test_mav[s_idx], test_labels[s_idx]
 
-                # CNN backprop fine-tune on the k support reps
-                ft = finetune_cnn(cnn, sx, sy, FT_EPOCHS, FT_LR)
-                swept["cnn_finetune"][k].append(predict_acc(ft, qx, qy))
+                bits = []
+                if with_cnn:
+                    # CNN backprop fine-tune on the k support reps. This is the
+                    # bottleneck of the whole harness (FT_EPOCHS full-batch passes
+                    # over every support window, per k, per fold) -- --skip-cnn
+                    # exists because it is a fixed baseline that does not change
+                    # when a new proto variant is added.
+                    ft = finetune_cnn(cnn, sx, sy, FT_EPOCHS, FT_LR)
+                    swept["cnn_finetune"][k].append(predict_acc(ft, qx, qy))
+                    bits.append(f"CNN-ft {swept['cnn_finetune'][k][-1]:.1%}")
 
                 # Prototypes = mean embedding of the k support reps (no backprop)
                 support_batch = [(torch.from_numpy(sx), torch.from_numpy(sy))]
                 for name, pm in proto_trained.items():
                     acc = set_protos_and_acc(pm, support_batch, qx, qy)
                     swept[f"{_short(name)}_after"][k].append(acc)
+                    bits.append(f"{_variant(name)} {acc:.1%}")
 
-                line = (f"  k={k}rep ({len(s_idx):,} win)  CNN-ft {swept['cnn_finetune'][k][-1]:.1%}  "
-                        + "  ".join(f"{_short(n)} {swept[_short(n)+'_after'][k][-1]:.1%}"
-                                    for n in PROTO_MODELS))
-                logger.info(line)
+                logger.info(f"  k={k}rep ({len(s_idx):,} win)  " + "  ".join(bits))
 
     elapsed = time.perf_counter() - start
 
     # -- Report ---------------------------------------------------------------
-    md = build_markdown(floors, swept, k_values, n_folds, elapsed)
+    md = build_markdown(floors, swept, models, seeds, k_values, n_folds, elapsed, with_cnn)
     print("\n" + md)
 
     RESULTS_DIR.mkdir(exist_ok=True)
@@ -488,7 +592,8 @@ def main(make_plot=False, use_cache=True):
     logger.info(f"Appended summary to: {LOG_PATH}")
 
     if make_plot:
-        png = save_plot(floors, swept, k_values, RESULTS_DIR / "fewshot_loso_curve.png")
+        png = save_plot(floors, swept, models, k_values,
+                        RESULTS_DIR / "fewshot_loso_curve.png", with_cnn)
         if png:
             logger.info(f"Saved curve to: {png}")
 
@@ -496,8 +601,53 @@ def main(make_plot=False, use_cache=True):
     return floors, swept
 
 
+def parse_args(argv=None):
+    import argparse
+
+    p = argparse.ArgumentParser(
+        description="Leave-one-session-out few-shot evaluation.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  %(prog)s\n"
+            "      full run: every proto model + the CNN baseline, all seeds, full k sweep\n"
+            "  %(prog)s --models EmagerCNNProtoRingStridedPTQ --skip-cnn --k 1,3,5\n"
+            "      score one new variant against the existing CNN numbers (~15 min)\n"
+            "  %(prog)s --quick\n"
+            "      1 seed, k in {1,2}, no CNN baseline -- a plumbing check\n"
+        ),
+    )
+    p.add_argument("--models", type=lambda s: [m for m in s.split(",") if m],
+                   default=None, metavar="A,B",
+                   help=f"comma-separated proto models to evaluate (default: {', '.join(PROTO_MODELS)})")
+    p.add_argument("--seeds", type=lambda s: [int(v) for v in s.split(",") if v],
+                   default=None, metavar="42,123",
+                   help=f"comma-separated seeds (default: {SEEDS})")
+    p.add_argument("--k", dest="k_values", type=lambda s: [int(v) for v in s.split(",") if v],
+                   default=None, metavar="1,3,5",
+                   help=f"comma-separated calibration reps/class to sweep (default: {K_VALUES})")
+    p.add_argument("--skip-cnn", action="store_true",
+                   help="skip the CNN zero-shot floor and fine-tune sweep. This is the "
+                        "bulk of the wall time and it is a fixed baseline, so skip it when "
+                        "measuring a new proto variant against an earlier run's CNN rows.")
+    p.add_argument("--quick", action="store_true",
+                   help="plumbing check: 1 seed, k in {1,2}, implies --skip-cnn")
+    p.add_argument("--fresh", action="store_true", help="ignore cached offline models and retrain")
+    p.add_argument("--plot", action="store_true", help="also save a PNG of the k curve")
+
+    args = p.parse_args(argv)
+    if args.quick:
+        args.seeds    = args.seeds or [42]
+        args.k_values = args.k_values or [1, 2]
+        args.skip_cnn = True
+
+    unknown = [m for m in (args.models or []) if not hasattr(new_models, m)]
+    if unknown:
+        p.error(f"unknown model(s): {', '.join(unknown)}")
+    return args
+
+
 if __name__ == "__main__":
-    if "--quick" in sys.argv:
-        SEEDS    = [42]
-        K_VALUES = [1, 2]
-    main(make_plot="--plot" in sys.argv, use_cache="--fresh" not in sys.argv)
+    a = parse_args()
+    main(models=a.models, seeds=a.seeds, k_values=a.k_values, with_cnn=not a.skip_cnn,
+         make_plot=a.plot, use_cache=not a.fresh)

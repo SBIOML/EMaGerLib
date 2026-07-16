@@ -1233,9 +1233,9 @@ class EmagerCNNProtoRingStridedPTQ(EmagerCNNProtoRingStrided):
         trainer.fit(self, train_dataloader)
 
         # Stages 2-4
-        return self.quantize_and_eval(train_dataloader, test_dataloader)
+        return self.quantize_from_pretrained(train_dataloader, test_dataloader)
 
-    def quantize_and_eval(self, train_dataloader, test_dataloader=None, calib_loader=None):
+    def quantize_from_pretrained(self, train_dataloader, test_dataloader=None, calib_loader=None):
         """
         Stages 2-4: quantize an **already-trained** FP32 embedding, then compute
         prototypes and report before/after few-shot.
@@ -1245,8 +1245,16 @@ class EmagerCNNProtoRingStridedPTQ(EmagerCNNProtoRingStrided):
         same episodic loss, same data order, and the Quant/DeQuant stubs hold no
         parameters so they draw no RNG during init and are no-ops in FP32. A benchmark
         harness can therefore train stage 1 **once** per (fold, seed), load the weights
-        into each PTQ variant, and call this — turning N trainings into 1 with no
+        into each quantized variant, and call this — turning N trainings into 1 with no
         approximation. See STAGE1_SOURCE in examples/training/eval_fewshot_loso.py.
+
+        This matters beyond speed: a converted model cannot be round-tripped. Pickling
+        one and loading it back yields fused modules with no `_modules` dict (even
+        .eval() raises), and its state_dict will not load into a fresh FP32 instance
+        because convert() restructured the module tree. Deriving from FP32 weights is
+        the supported way to reproduce a quantized model.
+
+        QAT overrides this with its own pipeline, so callers can treat it polymorphically.
 
         calib_loader: explicit observer-calibration batches. When given, `calib_source`
             is not consulted — the caller has already decided what to calibrate on. This
@@ -1349,20 +1357,23 @@ class EmagerCNNProtoRingStridedQAT(EmagerCNNProtoRingStridedPTQ):
     """
     qat_epochs = 5   # fine-tuning epochs after the FP32 warm start
 
-    def fit(self, train_dataloader, test_dataloader=None, max_epochs: int = 10):
-        import torch.ao.quantization as taq
-
-        # The PTQ strategy knobs do not carry over, so refuse them rather than
-        # silently ignore: QAT has no separate observer-calibration pass (ranges are
-        # learned during fine-tuning on train_dataloader, so calib_source is not a
-        # choice), and its pre-convert model is already fake-quantized, so "fp32"
-        # prototypes would not be FP32 in any meaningful sense.
+    def _reject_ptq_knobs(self):
+        """
+        The PTQ strategy knobs do not carry over, so refuse them rather than silently
+        ignore: QAT has no separate observer-calibration pass (ranges are learned during
+        fine-tuning on train_dataloader, so calib_source is not a choice), and its
+        pre-convert model is already fake-quantized, so "fp32" prototypes would not be
+        FP32 in any meaningful sense.
+        """
         if self.proto_precision != "int8" or self.calib_source != "train":
             raise ValueError(
                 f"{type(self).__name__} does not support proto_precision="
                 f"{self.proto_precision!r} / calib_source={self.calib_source!r}; "
                 "those knobs are PTQ-only. Use EmagerCNNProtoRingStridedPTQ to vary them."
             )
+
+    def fit(self, train_dataloader, test_dataloader=None, max_epochs: int = 10):
+        self._reject_ptq_knobs()
 
         # Stage 1: FP32 episodic warm start
         trainer = L.Trainer(
@@ -1371,7 +1382,28 @@ class EmagerCNNProtoRingStridedQAT(EmagerCNNProtoRingStridedPTQ):
         )
         trainer.fit(self, train_dataloader)
 
-        # Stage 2-4: fold embedding BN, fuse for QAT, insert fake-quant (on CPU)
+        # Stages 2-6
+        return self.quantize_from_pretrained(train_dataloader, test_dataloader)
+
+    def quantize_from_pretrained(self, train_dataloader, test_dataloader=None, calib_loader=None):
+        """
+        Stages 2-6, assuming the FP32 warm start is already done (weights loaded).
+
+        Overrides the PTQ pipeline with the QAT one, so a harness can call this
+        polymorphically on either class. The warm start this replaces is bit-identical
+        to `EmagerCNNProtoRingStrided`'s training, so QAT can share the same cached FP32
+        stage-1 as the PTQ variants and pay only the fine-tuning (see STAGE1_SOURCE).
+        """
+        import torch.ao.quantization as taq
+
+        self._reject_ptq_knobs()
+        if calib_loader is not None:
+            raise ValueError(
+                f"{type(self).__name__} learns activation ranges during QAT fine-tuning; "
+                "an explicit calib_loader does not apply (that is a PTQ concept)."
+            )
+
+        # Stages 2-4: fold embedding BN, fuse for QAT, insert fake-quant (on CPU)
         self._prepare_qat()
 
         # Stage 5: QAT fine-tuning with fake quant active. Forced onto CPU so the

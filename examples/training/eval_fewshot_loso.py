@@ -178,10 +178,13 @@ PROTO_MODELS = [
 #
 # This is the difference between ~4h and ~15h for the 5-variant sweep on Felix, where
 # one offline training is ~9-12 min (166k windows/fold, CPU).
+# QAT is included too: its FP32 *warm start* is the same training, and it then pays
+# only its fake-quant fine-tuning on top (qat_epochs, ~1/3 the cost of a full train).
 STAGE1_SOURCE = {
     "EmagerCNNProtoRingStridedPTQ":             "EmagerCNNProtoRingStrided",
     "EmagerCNNProtoRingStridedPTQFp32Protos":   "EmagerCNNProtoRingStrided",
     "EmagerCNNProtoRingStridedPTQSupportCalib": "EmagerCNNProtoRingStrided",
+    "EmagerCNNProtoRingStridedQAT":             "EmagerCNNProtoRingStrided",
 }
 
 MAX_EPOCHS = 10                # offline embedding / CNN training
@@ -296,15 +299,7 @@ def train_offline(model_name, train_mav, train_labels, num_classes, seed):
 
 
 def _is_quantized_family(model_name) -> bool:
-    """
-    True for the INT8 variants (anything descending from EmagerCNNQuantizedPTQ or
-    carrying its qbackend attribute).
-
-    These restructure *themselves* during fit() -- fuse Conv+BN+ReLU, fold BN, then
-    convert() to packed INT8 modules -- so a freshly constructed FP32 instance has a
-    completely different module tree and cannot accept their state_dict. They are
-    cached as whole pickled objects instead of state_dicts; see get_offline_model.
-    """
+    """True for the INT8 variants (anything carrying EmagerCNNQuantizedPTQ's qbackend)."""
     return hasattr(getattr(new_models, model_name), "qbackend")
 
 
@@ -316,11 +311,8 @@ def _cache_path(model_name, held_out, seed, train_names):
     # Session names may contain "/" (e.g. "Felix_5sessions/S_0") when a dataset
     # groups sessions in subfolders -- sanitize so the cache key stays a flat filename.
     ho = held_out.replace("/", "_").replace("\\", "_")
-    # Quantized variants are pickled whole; the distinct suffix keeps the two cache
-    # formats from ever being loaded as each other.
-    ext = "full.pt" if _is_quantized_family(model_name) else "pt"
     fn = (f"{model_name}__ho-{ho}__seed{seed}__ep{MAX_EPOCHS}"
-          f"__w{WINDOW_SIZE}-{WINDOW_INCREMENT}__sr{SAMPLING}__tr{tr}.{ext}")
+          f"__w{WINDOW_SIZE}-{WINDOW_INCREMENT}__sr{SAMPLING}__tr{tr}.pt")
     return CACHE_DIR / fn
 
 
@@ -343,18 +335,28 @@ def uses_fp32_protos(model_name) -> bool:
     return getattr(getattr(new_models, model_name), "proto_precision", "int8") == "fp32"
 
 
-def derive_quantized(model_name, base, num_classes, calib_batches):
+def _is_qat(model_name) -> bool:
+    """True for QAT variants, which fine-tune instead of calibrating observers."""
+    return hasattr(getattr(new_models, model_name), "qat_epochs")
+
+
+def derive_quantized(model_name, base, num_classes, calib_batches=None, train_dl=None):
     """
     Build a quantized variant from an already-trained FP32 stage-1 model, skipping
     stage 1 entirely (see STAGE1_SOURCE for why the weights are interchangeable).
 
-    `base` is left untouched -- its weights are copied out, so the caller can keep
-    using it (e.g. as the FP32 prototype source for the Fp32Protos ablation).
+    `base` is left untouched -- its weights are copied out, so the caller can keep using
+    it (e.g. as the FP32 prototype source for the Fp32Protos ablation, or as the stage-1
+    for the next variant).
+
+    PTQ variants get `calib_batches` (explicit observer calibration); QAT ignores that
+    and fine-tunes on `train_dl` instead. Both are reached through the same
+    quantize_from_pretrained() entry point.
     """
     model = getattr(new_models, model_name)(INPUT_SHAPE, num_classes)
     missing, unexpected = model.load_state_dict(base.state_dict(), strict=False)
-    # The FP32 base and its PTQ subclass have identical parameter trees; anything else
-    # means STAGE1_SOURCE is claiming an equivalence that does not hold.
+    # The FP32 base and its quantized subclasses have identical parameter trees before
+    # convert(); anything else means STAGE1_SOURCE claims an equivalence that does not hold.
     if missing or unexpected:
         raise RuntimeError(
             f"STAGE1_SOURCE[{model_name!r}] weights do not match: "
@@ -362,46 +364,61 @@ def derive_quantized(model_name, base, num_classes, calib_batches):
             f"The shared-stage-1 assumption is broken -- check the two classes' __init__."
         )
     model.eval()
-    # Calibration data is passed explicitly: this harness owns the support/query split,
-    # so the model must not try to re-derive it from a test_dataloader it never sees.
-    # test_dataloader=None keeps this to the INT8 stage -- prototypes/scoring are the
-    # harness's job (set_protos_and_acc), per k.
-    model.quantize_and_eval(None, None, calib_loader=calib_batches)
+    # test_dataloader=None keeps this to the quantization stage -- prototypes/scoring are
+    # the harness's job (set_protos_and_acc), per k.
+    if _is_qat(model_name):
+        model.quantize_from_pretrained(train_dl, None)
+    else:
+        # Calibration data is passed explicitly: this harness owns the support/query
+        # split, so the model must not try to re-derive it from a test_dataloader it
+        # never sees.
+        model.quantize_from_pretrained(None, None, calib_loader=calib_batches)
     return model
 
 
 def get_offline_model(model_name, train_mav, train_labels, num_classes, seed,
                       held_out, train_names, use_cache):
-    """Train the offline model, or load it from cache if a matching one exists.
-    Returns (model, was_cached)."""
-    path = _cache_path(model_name, held_out, seed, train_names)
-    whole = _is_quantized_family(model_name)
+    """
+    Train an FP32 offline model, or load it from cache if a matching one exists.
+    Returns (model, was_cached).
 
+    FP32 only, by design. A converted model does not round-trip in either direction:
+    its state_dict will not load into a fresh instance (convert() restructured the
+    module tree), and pickling the object whole produces fused modules missing their
+    `_modules` dict -- the reload succeeds but .eval() and forward both raise
+    AttributeError. Quantized variants are therefore never cached; they are derived
+    from a cached FP32 stage-1 via STAGE1_SOURCE + derive_quantized(), which is exact
+    and takes seconds.
+    """
+    if _is_quantized_family(model_name):
+        raise RuntimeError(
+            f"{model_name} is a quantized variant and cannot be trained or cached "
+            f"directly (converted models do not survive save/load). Add a STAGE1_SOURCE "
+            f"entry so it is derived from a shared FP32 stage-1 instead."
+        )
+
+    path = _cache_path(model_name, held_out, seed, train_names)
     if use_cache and path.exists():
-        if whole:
-            model = torch.load(path, map_location="cpu", weights_only=False)
-        else:
-            model = getattr(new_models, model_name)(INPUT_SHAPE, num_classes)
-            if hasattr(model, "_ce_head"):
-                model._ce_head = None   # match the post-fit state (head dropped) so keys align
-            incompatible = model.load_state_dict(
-                torch.load(path, map_location="cpu"), strict=False)
-            # strict=False is needed for the dropped CE head, but it also means a
-            # structurally mismatched cache would load NOTHING and silently hand back
-            # a randomly initialised model. Fail loudly instead.
-            if incompatible.missing_keys or incompatible.unexpected_keys:
-                raise RuntimeError(
-                    f"Stale/incompatible cached model for {model_name} at {path.name}: "
-                    f"{len(incompatible.missing_keys)} missing / "
-                    f"{len(incompatible.unexpected_keys)} unexpected keys. "
-                    f"Delete it or re-run with --fresh."
-                )
+        model = getattr(new_models, model_name)(INPUT_SHAPE, num_classes)
+        if hasattr(model, "_ce_head"):
+            model._ce_head = None   # match the post-fit state (head dropped) so keys align
+        incompatible = model.load_state_dict(torch.load(path, map_location="cpu"), strict=False)
+        # strict=False is needed for the dropped CE head, but it also means a
+        # structurally mismatched cache would load NOTHING and silently hand back a
+        # randomly initialised model. Fail loudly instead.
+        if incompatible.missing_keys or incompatible.unexpected_keys:
+            raise RuntimeError(
+                f"Stale/incompatible cached model for {model_name} at {path.name}: "
+                f"{len(incompatible.missing_keys)} missing / "
+                f"{len(incompatible.unexpected_keys)} unexpected keys. "
+                f"Delete it or re-run with --fresh."
+            )
         model.eval()
         return model, True
 
     model = train_offline(model_name, train_mav, train_labels, num_classes, seed)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    torch.save(model if whole else model.state_dict(), path)
+    torch.save(model.state_dict(), path)
     return model, False
 
 
@@ -623,8 +640,10 @@ def main(models=None, seeds=None, k_values=None, with_cnn=True,
                 cached_flags.append(c0)
 
             gen_dl = make_loader(train_mav, train_labels, BATCH_TEST, shuffle=False, drop_last=False)
-            # Calibration batches for any variant derived from a shared FP32 stage-1.
+            # Observer-calibration batches for PTQ variants derived from a shared stage-1.
             calib_dl = make_loader(train_mav, train_labels, BATCH_TRAIN, shuffle=False, drop_last=False)
+            # Shuffled loader for QAT's fine-tuning, matching train_offline's setup.
+            qat_dl = make_loader(train_mav, train_labels, BATCH_TRAIN, shuffle=True, drop_last=True)
             proto_trained = {}
             for name in models:
                 src_name = STAGE1_SOURCE.get(name)
@@ -637,7 +656,7 @@ def main(models=None, seeds=None, k_values=None, with_cnn=True,
                     base, ci = get_offline_model(src_name, train_mav, train_labels, num_classes,
                                                  seed, held_out, train_names, use_cache)
                     pm = None if needs_per_k_quant(name) else derive_quantized(
-                        name, base, num_classes, calib_dl)
+                        name, base, num_classes, calib_batches=calib_dl, train_dl=qat_dl)
 
                 # Prototype source: the FP32 base for the proto_precision="fp32"
                 # ablation, otherwise the (quantized) model itself.
@@ -687,7 +706,8 @@ def main(models=None, seeds=None, k_values=None, with_cnn=True,
                         # calib_source="support": re-quantize from the shared FP32 base
                         # using THIS k's support set as the observer calibration data.
                         # Cheap (fuse+calibrate+convert), because stage 1 is already done.
-                        model = derive_quantized(name, base, num_classes, support_batch)
+                        model = derive_quantized(name, base, num_classes,
+                                                 calib_batches=support_batch)
                     proto_src = base if uses_fp32_protos(name) else model
                     acc = set_protos_and_acc(model, support_batch, qx, qy, proto_src=proto_src)
                     swept[f"{_short(name)}_after"][k].append(acc)

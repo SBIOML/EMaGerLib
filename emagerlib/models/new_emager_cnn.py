@@ -43,6 +43,33 @@ class RingPad2d(nn.Module):
 
 
 # ==============================================================================
+#  Quantization primitives
+# ==============================================================================
+
+def _fold_bn1d_into_linear(lin: nn.Linear, bn: nn.BatchNorm1d) -> nn.Linear:
+    """
+    Return a single Linear equivalent to `lin` followed by `bn` in eval mode.
+
+    Exact, not an approximation: in eval mode BN1d is the affine map
+    y = (x - mean)/sqrt(var + eps) * gamma + beta using running stats only, which
+    absorbs into the preceding Linear's weight and bias.
+
+    Needed because PyTorch's QuantizedCPU backend has no nn.BatchNorm1d kernel, so
+    a BN1d that receives a quantized tensor has to be folded away before convert().
+    (A BN1d on the FP32 side of a QuantStub -- e.g. `normalize` -- is unaffected and
+    stays put.)
+    """
+    scale = bn.weight / torch.sqrt(bn.running_var + bn.eps)
+    shift = bn.bias - bn.running_mean * scale
+
+    folded = nn.Linear(lin.in_features, lin.out_features, bias=True)
+    bias0  = lin.bias.data if lin.bias is not None else torch.zeros(lin.out_features)
+    folded.weight.data = lin.weight.data * scale.unsqueeze(1)
+    folded.bias.data   = bias0 * scale + shift
+    return folded
+
+
+# ==============================================================================
 #  Shared Lightning + LibEMG boilerplate
 #  All variants inherit from this — architecture goes in __init__ of each subclass
 # ==============================================================================
@@ -549,15 +576,7 @@ class EmagerCNNQuantizedPTQ(_EmagerBase):
         relu    = self.classifier[3]
         lin1    = self.classifier[4]   # Linear(256, num_classes)
 
-        scale = bn1d.weight / torch.sqrt(bn1d.running_var + bn1d.eps)
-        shift = bn1d.bias - bn1d.running_mean * scale
-
-        folded = nn.Linear(lin0.in_features, lin0.out_features, bias=True)
-        bias0  = lin0.bias.data if lin0.bias is not None else torch.zeros(lin0.out_features)
-        folded.weight.data = lin0.weight.data * scale.unsqueeze(1)
-        folded.bias.data   = bias0 * scale + shift
-
-        self.classifier = nn.Sequential(folded, dropout, relu, lin1)
+        self.classifier = nn.Sequential(_fold_bn1d_into_linear(lin0, bn1d), dropout, relu, lin1)
 
     def _test_quantized(self, test_dl):
         self.eval()
@@ -916,6 +935,37 @@ class _EmagerProtoBase(_EmagerBase):
             total    += yb.size(0)
         return correct / total, loss_sum / total
 
+    # -- generic protos → few-shot protos → report ----------------------------
+    def _eval_fewshot(self, train_dataloader, test_dataloader):
+        """
+        Calibrate + score, given an already-trained embedding. Split out of fit()
+        so the quantized subclasses can run it *after* converting to INT8 — their
+        prototypes must come from the quantized embedding, which is the one the
+        device actually runs.
+        """
+        if test_dataloader is None:
+            return
+
+        # Stage A: held-out rep = "new session". Carve out n_shots support / class
+        # (the on-device calibration set) and keep the rest as the query set.
+        x, y = self._gather(test_dataloader)
+        (sx, sy), (qx, qy) = self._split_support_query(x, y, self.n_shots)
+
+        # Stage B: BEFORE few-shot — generic prototypes from the training reps.
+        self.prototypes = self._prototypes_from(train_dataloader)
+        self.acc_before_fewshot, _ = self._eval(qx, qy)
+
+        # Stage C: AFTER few-shot — prototypes from the n_shots support set.
+        self.prototypes = self._prototypes_from([(sx, sy)])
+        self.acc_after_fewshot, loss_after = self._eval(qx, qy)
+
+        logger.info(f"  [proto] before few-shot (generic protos): acc={self.acc_before_fewshot:.1%}")
+        logger.info(
+            f"  [proto] after  {self.n_shots}-shot calibration:   acc={self.acc_after_fewshot:.1%}  "
+            f"(delta {self.acc_after_fewshot - self.acc_before_fewshot:+.1%})"
+        )
+        return [{"test_acc": self.acc_after_fewshot, "test_loss": loss_after}]
+
     # -- offline-train embedding → generic protos → few-shot protos → report --
     def fit(self, train_dataloader, test_dataloader=None, max_epochs: int = 10):
         # Stage 1: offline embedding training. The loss lives in _shared_step,
@@ -926,28 +976,8 @@ class _EmagerProtoBase(_EmagerBase):
         )
         trainer.fit(self, train_dataloader)
 
-        if test_dataloader is None:
-            return
-
-        # Stage 2: held-out rep = "new session". Carve out n_shots support / class
-        # (the on-device calibration set) and keep the rest as the query set.
-        x, y = self._gather(test_dataloader)
-        (sx, sy), (qx, qy) = self._split_support_query(x, y, self.n_shots)
-
-        # Stage 3a: BEFORE few-shot — generic prototypes from the training reps.
-        self.prototypes = self._prototypes_from(train_dataloader)
-        self.acc_before_fewshot, _ = self._eval(qx, qy)
-
-        # Stage 3b: AFTER few-shot — prototypes from the n_shots support set.
-        self.prototypes = self._prototypes_from([(sx, sy)])
-        self.acc_after_fewshot, loss_after = self._eval(qx, qy)
-
-        logger.info(f"  [proto] before few-shot (generic protos): acc={self.acc_before_fewshot:.1%}")
-        logger.info(
-            f"  [proto] after  {self.n_shots}-shot calibration:   acc={self.acc_after_fewshot:.1%}  "
-            f"(delta {self.acc_after_fewshot - self.acc_before_fewshot:+.1%})"
-        )
-        return [{"test_acc": self.acc_after_fewshot, "test_loss": loss_after}]
+        # Stage 2: calibrate on the held-out rep and report before/after.
+        return self._eval_fewshot(train_dataloader, test_dataloader)
 
 
 class EmagerCNNProtoEpisodic(_EmagerProtoBase):
@@ -1021,3 +1051,253 @@ class EmagerCNNProtoCE(_EmagerProtoBase):
         out = super().fit(train_dataloader, test_dataloader, max_epochs)
         self._ce_head = None   # deployed model = embedding + prototypes, no CE head
         return out
+
+
+# ==============================================================================
+#  Few-shot prototypical models on the RingStrided architecture (deployment line)
+#  Same prototype rule as above, but on the smallest architecture in the file,
+#  with INT8 leaves. This is the MCU-targeted branch.
+# ==============================================================================
+
+class EmagerCNNProtoRingStrided(EmagerCNNProtoEpisodic):
+    """
+    Episodic prototypical network on the EmagerCNNRingStrided backbone.
+
+    Combines the two directions that each paid off on their own axis:
+      - RingStrided (strided spatial collapse + column-only ring padding) — the
+        smallest architecture in this file, ~12x fewer params than Base.
+      - Episodic prototypes — classification by distance to prototypes computed
+        from a support set, so per-session calibration needs no on-device backprop.
+
+    Only __init__ differs from EmagerCNNProtoEpisodic: the embedding backbone is
+    the RingStrided conv stack instead of the Base stack. The episodic loss
+    (_shared_step), the prototype computation and the generic->few-shot eval in
+    fit() are all inherited unchanged.
+
+    Because the strided stack collapses (4,16) -> (1,4) before flatten, the
+    embedding head is Linear(128 -> 64) rather than Linear(2048 -> 64) — which is
+    where nearly all of EmagerCNNProtoEpisodic's 167K params live.
+
+    input (B, H*W)
+      |- BN1d
+      |- reshape (B, 1, 4, 16)
+      |- RingPad(w=1,h=1) -> Conv2d(1 ->32, 3x3, s=2, p=0) + BN2d + ReLU  -> (B,32,2,8)
+      |- RingPad(w=1,h=1) -> Conv2d(32->32, 3x3, s=2, p=0) + BN2d + ReLU  -> (B,32,1,4)
+      |- RingPad(w=2,h=2) -> Conv2d(32->32, 5x5, s=1, p=0) + BN2d + ReLU  -> (B,32,1,4)
+      |- Flatten                            -> (B, 128)
+      |- Linear(128 -> D) + BN1d + ReLU     -> (B, D)  embedding
+      |- distance to prototypes: logit_c = -||e - p_c||^2/D  -> (B, C)
+    """
+    def __init__(self, input_shape: tuple, num_classes: int, lr: float = 1e-3, embed_dim: int = 64):
+        super().__init__(input_shape, num_classes, lr, embed_dim)
+
+        # spatial size after two stride-2 convs (kernel=3, pad 1 each side via RingPad)
+        h = (input_shape[0] + 2 - 3) // 2 + 1
+        h = (h              + 2 - 3) // 2 + 1
+        w = (input_shape[1] + 2 - 3) // 2 + 1
+        w = (w              + 2 - 3) // 2 + 1
+        flat = 32 * h * w   # 128 for the default (4, 16) input
+
+        # ReLU(inplace=False) throughout: the PTQ/QAT subclasses fuse this exact
+        # stack, and torch.ao.quantization's fusion requires out-of-place ReLU.
+        # Declaring it that way once here lets them inherit the architecture
+        # rather than restate it.
+        self.features = nn.Sequential(
+            RingPad2d(pad_w=1, pad_h=1),
+            nn.Conv2d(1,  32, kernel_size=3, stride=2, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=False),
+            RingPad2d(pad_w=1, pad_h=1),
+            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=False),
+            RingPad2d(pad_w=2, pad_h=2),
+            nn.Conv2d(32, 32, kernel_size=5, stride=1, padding=0), nn.BatchNorm2d(32), nn.ReLU(inplace=False),
+            nn.Flatten(),
+            nn.Linear(flat, embed_dim), nn.BatchNorm1d(embed_dim), nn.ReLU(inplace=False),
+        )
+
+
+class EmagerCNNProtoRingStridedPTQ(EmagerCNNProtoRingStrided):
+    """
+    EmagerCNNProtoRingStrided with the embedding quantized to INT8 after training (PTQ).
+
+    What is and isn't quantized
+    ---------------------------
+    The QuantStub/DeQuantStub bracket the *embedding* only; the prototype distance
+    stays FP32:
+
+        BN1d -> QuantStub -> [ INT8 conv stack + INT8 Linear(128->D) ] -> DeQuantStub
+             -> ||e - p_c||^2 in FP32
+
+    That is deliberate, not a shortcut. The distance is C*D (7*64 = 448) MACs against
+    ~152K in the conv stack, so quantizing it would buy nothing measurable, and eager
+    mode has no quantized kernel for the broadcast-subtract/pow it needs. It also
+    mirrors how this runs on an MCU: an INT8 kernel (CMSIS-NN / TFLite Micro) for the
+    conv stack, a few hundred float ops for the nearest-prototype lookup.
+
+    Why prototypes are computed AFTER convert()
+    -------------------------------------------
+    fit() trains FP32, quantizes, and only *then* computes prototypes — through the
+    INT8 embedding. This is what the device does: it ships with a frozen INT8 network
+    and averages the embeddings *that network* produces for the user's calibration
+    examples. Computing prototypes from the FP32 embedding and then quantizing would
+    put the prototypes in a slightly different space than the embeddings they are
+    compared against at inference.
+
+    A pleasant consequence: the calibration step is inherently quantization-aware
+    with no extra machinery, since the prototypes are means of quantized embeddings.
+
+    Pipeline (inside fit()):
+      1. FP32 episodic training of the embedding (inherited _shared_step)
+      2. Fold the embedding head's BatchNorm1d into its Linear (exact in eval mode;
+         QuantizedCPU has no BN1d kernel)
+      3. Fuse Conv+BN+ReLU triplets in the conv stack
+      4. Calibrate observers on ~10 train batches (through embed(), the quantized region)
+      5. convert() to INT8, then compute prototypes and report before/after few-shot
+
+    Backend defaults to fbgemm (x86 host); set qbackend = "qnnpack" for ARM.
+    """
+    qbackend       = "fbgemm"   # "qnnpack" for ARM (e.g. STM32 / Cortex-M) deployment
+    _calib_batches = 10
+    # RingPad2d occupies indices 0/4/8; Conv+BN+ReLU triplets are at 1-3, 5-7, 9-11.
+    _fuse_groups   = [["1", "2", "3"], ["5", "6", "7"], ["9", "10", "11"]]
+
+    def __init__(self, input_shape: tuple, num_classes: int, lr: float = 1e-3, embed_dim: int = 64):
+        super().__init__(input_shape, num_classes, lr, embed_dim)
+        self.quant      = torch.ao.quantization.QuantStub()
+        self.dequant    = torch.ao.quantization.DeQuantStub()
+        self._quantized = False
+
+    def embed(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.normalize(x.view(x.size(0), -1))
+        x = x.view(x.size(0), 1, *self.hparams.input_shape)
+        x = self.quant(x)
+        x = self.features(x)
+        return self.dequant(x)     # prototype distance runs in FP32 on the result
+
+    def fit(self, train_dataloader, test_dataloader=None, max_epochs: int = 10):
+        # Stage 1: offline FP32 embedding training (episodic loss)
+        trainer = L.Trainer(
+            max_epochs=max_epochs,
+            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
+        )
+        trainer.fit(self, train_dataloader)
+
+        # Stage 2: quantize the embedding to INT8 (runs even without a test loader,
+        # so a fit() used purely to produce a deployable model still converts)
+        self._apply_ptq(train_dataloader)
+
+        # Stage 3: prototypes + before/after report, through the INT8 embedding
+        return self._eval_fewshot(train_dataloader, test_dataloader)
+
+    def _apply_ptq(self, calib_loader):
+        import torch.ao.quantization as taq
+
+        self.eval()
+        self.cpu()
+
+        self._fold_embed_bn()
+        taq.fuse_modules(self.features, self._fuse_groups, inplace=True)
+
+        self.qconfig = taq.get_default_qconfig(self.qbackend)
+        taq.prepare(self, inplace=True)
+
+        # Calibration goes through embed(), not forward(): embed() is exactly the
+        # quantized region, and forward() would additionally hit the prototype
+        # distance while the prototype buffer is still zeros.
+        with torch.no_grad():
+            for i, (x, _) in enumerate(calib_loader):
+                self.embed(x.cpu())
+                if i + 1 >= self._calib_batches:
+                    break
+
+        taq.convert(self, inplace=True)
+        self._quantized = True
+
+    def _fold_embed_bn(self):
+        """
+        Fold the embedding head's BatchNorm1d into its preceding Linear.
+
+            Before:  [..., Flatten, Linear(flat, D), BN1d(D), ReLU]
+            After:   [..., Flatten, Linear_folded,            ReLU]
+
+        Addressed from the tail so it stays correct regardless of how many layers
+        the conv stack has. Leaves _fuse_groups' indices (all < flatten) untouched.
+        """
+        layers        = list(self.features)
+        lin, bn, relu = layers[-3], layers[-2], layers[-1]
+        self.features = nn.Sequential(*layers[:-3], _fold_bn1d_into_linear(lin, bn), relu)
+
+    def convert_input(self, x) -> torch.Tensor:
+        if not isinstance(x, torch.Tensor):
+            x = torch.from_numpy(x)
+        return x.float().cpu() if self._quantized else super().convert_input(x)
+
+
+class EmagerCNNProtoRingStridedQAT(EmagerCNNProtoRingStridedPTQ):
+    """
+    Quantization-aware-training counterpart to EmagerCNNProtoRingStridedPTQ.
+
+    Same architecture and same FP32-embedding/FP32-distance split; the only
+    difference is that INT8 error is simulated during a fine-tuning phase so the
+    embedding weights adapt to it, rather than being quantized in one shot after
+    training. Inherits embed(), the BN fold, and convert_input from the PTQ class.
+
+    Note the interaction worth watching here: the fine-tuning uses the *episodic*
+    loss, so the embedding is adapting to fake-quant while being optimized for the
+    mean-prototype rule. That is the closest this file gets to training a model for
+    exactly what it does at deployment (INT8 embedding + computed prototypes).
+
+    Pipeline (inside fit()):
+      1. FP32 episodic warm start — also populates the BN running stats the fold needs
+      2. Fold the embedding head's BatchNorm1d into its Linear (exact in eval mode)
+      3. Fuse Conv+BN+ReLU with fuse_modules_qat -> ConvBnReLU2d (BN stays trainable)
+      4. prepare_qat() inserts fake-quant + observers
+      5. Fine-tune qat_epochs (default 5) on CPU, episodic loss, fake quant active
+      6. convert() to real INT8, then compute prototypes and report before/after
+
+    Compare against EmagerCNNProtoRingStridedPTQ for the QAT-vs-PTQ delta on this
+    architecture, and against EmagerCNNProtoRingStrided for the pure cost of INT8.
+    """
+    qat_epochs = 5   # fine-tuning epochs after the FP32 warm start
+
+    def fit(self, train_dataloader, test_dataloader=None, max_epochs: int = 10):
+        import torch.ao.quantization as taq
+
+        # Stage 1: FP32 episodic warm start
+        trainer = L.Trainer(
+            max_epochs=max_epochs,
+            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
+        )
+        trainer.fit(self, train_dataloader)
+
+        # Stage 2-4: fold embedding BN, fuse for QAT, insert fake-quant (on CPU)
+        self._prepare_qat()
+
+        # Stage 5: QAT fine-tuning with fake quant active. Forced onto CPU so the
+        # fbgemm/qnnpack fake-quant + convert path is consistent on any host.
+        qat_trainer = L.Trainer(
+            max_epochs=self.qat_epochs,
+            accelerator="cpu",
+            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
+        )
+        qat_trainer.fit(self, train_dataloader)
+
+        # Stage 6: convert to real INT8, then prototypes + before/after report
+        self.eval()
+        taq.convert(self, inplace=True)
+        self._quantized = True
+        return self._eval_fewshot(train_dataloader, test_dataloader)
+
+    def _prepare_qat(self):
+        import torch.ao.quantization as taq
+
+        self.eval()
+        self.cpu()
+        # Fold now that the FP32 warm start has given BN meaningful running stats.
+        self._fold_embed_bn()
+
+        # fuse_modules_qat keeps BN inside ConvBnReLU2d so it stays trainable during
+        # fine-tuning (plain fuse_modules would fold it away immediately — correct
+        # for PTQ, but it defeats QAT).
+        self.train()
+        taq.fuse_modules_qat(self.features, self._fuse_groups, inplace=True)
+        self.qconfig = taq.get_default_qat_qconfig(self.qbackend)
+        taq.prepare_qat(self, inplace=True)

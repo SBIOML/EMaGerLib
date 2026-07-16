@@ -23,9 +23,19 @@ numerically verified against the PyTorch reference. INT8 is a full-integer
 quantization (int8 weights + int8 I/O) calibrated on real MAV windows via
 TensorFlow's `TFLiteConverter` — a converter-side quantization path, separate from
 the in-repo `torch.ao.quantization` INT8 chain below (which targets PyTorch/FINN,
-not TFLite). `EmagerCNNRingStrided` is the recommended first MCU target (smallest
-architecture variant); the prototypical models export too (generic prototypes are
-baked in). See [`examples/deployment/README.md`](../../examples/deployment/README.md).
+not TFLite). `EmagerCNNRingStrided` is the recommended first MCU target among the
+plain classifiers (smallest architecture variant); the prototypical models export
+too (generic prototypes are baked in). See
+[`examples/deployment/README.md`](../../examples/deployment/README.md).
+
+> **Not yet wired up:** the export tool predates the
+> [RingStrided proto family](#few-shot-on-the-ringstrided-architecture-deployment-line)
+> and has not been run against it. Those models are the intended MCU target
+> (44 K params / ~58 KB INT8 / gradient-free on-device calibration), and exporting them
+> raises a question the current tool does not answer: prototypes are *user data computed on
+> device*, so baking generic ones in at export time is only the factory default — the C API
+> needs a way to **rewrite the prototype buffer after calibration**. Updating the ONNX/TFLite
+> path for this family is the next deployment task.
 
 ---
 
@@ -106,8 +116,13 @@ The **few-shot prototypical variants** drop the learned classifier entirely and
 classify by distance to class prototypes that are *computed* from a support set
 (not learned); they override `fit` to model an offline-train → on-device-calibrate
 deployment flow and form their own chain:
-`_EmagerProtoBase` → `EmagerCNNProtoEpisodic` / `EmagerCNNProtoCE`. See
-[Few-shot prototypical models](#few-shot-prototypical-models) for the full flow.
+`_EmagerProtoBase` → `EmagerCNNProtoEpisodic` / `EmagerCNNProtoCE`, with a
+**deployment line** hanging off the episodic leaf that puts the prototype rule on the
+smallest architecture in the file and quantizes it:
+`EmagerCNNProtoEpisodic` → `EmagerCNNProtoRingStrided` → `…RingStridedPTQ` → `…RingStridedQAT`.
+See [Few-shot prototypical models](#few-shot-prototypical-models) for the full flow and
+[Few-shot on the RingStrided architecture](#few-shot-on-the-ringstrided-architecture-deployment-line)
+for the deployment line.
 
 The dominant cost in most models is the **FC hidden layer** (`Linear(32·H·W, 256)`).
 For the default 4×16 input that's `Linear(2048, 256)` — ~525k of the ~562k total params.
@@ -487,6 +502,121 @@ accurate as episodic, but `f_θ` is not optimized for the distance rule directly
 
 ---
 
+## Few-shot on the RingStrided architecture (deployment line)
+
+`EmagerCNNProtoEpisodic` / `…ProtoCE` above are *research* models: they put the prototype
+rule on the **Base** conv stack, so ~150k of their ~167k params sit in one
+`Linear(2048→64)` embedding head. This line instead puts the same prototype rule on
+**RingStrided** — the smallest architecture in the file — and adds INT8 leaves. These three
+are the MCU-targeted variants.
+
+All three share one embedding backbone and the **episodic** loss (inherited from
+`EmagerCNNProtoEpisodic`); they differ only in weight precision. Choosing episodic over CE
+is a deliberate call, not a measurement on this architecture — see the
+[loss caveat](#-loss-choice-on-the-deployment-line) below.
+
+### EmagerCNNProtoRingStrided
+
+Episodic prototypical network on the `EmagerCNNRingStrided` backbone. Only `__init__`
+differs from `EmagerCNNProtoEpisodic` — the loss, the prototype computation and the
+generic→few-shot eval in `fit()` are all inherited.
+
+The strided collapse shrinks the embedding head from `Linear(2048→64)` to
+`Linear(128→64)`, which is where nearly all of ProtoEpisodic's params live:
+**167k → 44k, a ~3.8× cut for the same prototype rule.**
+
+```
+input → BN1d → reshape(B,1,4,16)
+  RingPad(w=1,h=1) → Conv(1→32,  3x3, s=2, p=0) + BN2d + ReLU  → (2,8)
+  RingPad(w=1,h=1) → Conv(32→32, 3x3, s=2, p=0) + BN2d + ReLU  → (1,4)
+  RingPad(w=2,h=2) → Conv(32→32, 5x5, s=1, p=0) + BN2d + ReLU  → (1,4)
+  Flatten(128)
+  → Linear(128→64) + BN1d + ReLU          ← embedding (D = 64)
+  → distance to prototypes: logitₖ = −‖e − pₖ‖²/D → (B, C)
+```
+
+> ReLUs are `inplace=False` here (unlike the other FP32 variants) so the PTQ/QAT
+> subclasses can fuse this exact stack and inherit the architecture rather than restate
+> it. `torch.ao.quantization`'s fusion requires out-of-place ReLU.
+
+**~44k params — ~0.18 MB** (FP32)
+
+---
+
+### EmagerCNNProtoRingStridedPTQ
+
+`EmagerCNNProtoRingStrided` with the embedding quantized to INT8 after training.
+**This is the recommended deployment target** — smallest, and PTQ needs no fine-tuning phase.
+
+**What is and isn't quantized.** The Quant/DeQuant stubs bracket the *embedding only*; the
+prototype distance stays FP32:
+
+```
+BN1d → QuantStub → [ INT8 conv stack → INT8 Linear(128→64) ] → DeQuantStub
+     → ‖e − pₖ‖² in FP32 → (B, C)
+```
+
+That boundary is deliberate. The distance is `C×D` = 7×64 = **448 MACs against ~152k in the
+conv stack**, so quantizing it would buy nothing measurable, and eager mode has no quantized
+kernel for the broadcast-subtract/pow it needs anyway. It also mirrors the MCU split you'd
+actually ship: an INT8 kernel (CMSIS-NN / TFLite Micro) for the conv stack, a few hundred
+float ops for the nearest-prototype lookup.
+
+**Why prototypes are computed *after* `convert()`.** `fit()` trains FP32 → quantizes → and
+only *then* computes prototypes, through the INT8 embedding. This is what the device does:
+it ships with a frozen INT8 network and averages the embeddings *that network* produces from
+the user's calibration examples. Computing prototypes from the FP32 embedding and then
+quantizing would leave the prototypes in a slightly different space than the embeddings they
+are compared against at inference. A pleasant consequence: **the calibration step is
+inherently quantization-aware with no extra machinery**, since the prototypes are means of
+quantized embeddings.
+
+Pipeline (inside `fit()`): FP32 episodic training → fold the embedding head's `BatchNorm1d`
+into its `Linear` → fuse Conv+BN+ReLU triplets → calibrate observers on ~10 train batches
+(through `embed()`, the quantized region) → `convert()` → compute prototypes → report
+before/after.
+
+**~44k params — ~0.058 MB INT8** (verified serialized; ~3.2× smaller than the FP32 variant)
+
+---
+
+### EmagerCNNProtoRingStridedQAT
+
+QAT counterpart — same architecture and same embedding/distance split; INT8 error is
+simulated during a fine-tuning phase instead of applied in one shot. Inherits `embed()`, the
+BN fold, and `convert_input` from the PTQ class; only the pipeline differs (FP32 warm start →
+fold → `fuse_modules_qat` → `prepare_qat` → fine-tune `qat_epochs` (default 5) on CPU →
+`convert()` → prototypes).
+
+The interaction worth watching: the fine-tuning uses the **episodic** loss, so the embedding
+adapts to fake-quant *while* being optimized for the mean-prototype rule. That makes this the
+closest model in the file to being trained for exactly what it does at deployment — an INT8
+embedding classified by computed prototypes.
+
+**~44k params — ~0.058 MB INT8** (identical footprint to PTQ; costs an extra warm start +
+`qat_epochs` of fine-tuning to produce)
+
+---
+
+#### ⚠ Loss choice on the deployment line
+
+This family uses the **episodic** loss on all three variants. That is a judgement call, and
+the evidence behind it is genuinely split — the two LOSO subjects disagree at k=5:
+
+| | EM subject | Felix subject |
+|---|---|---|
+| `ProtoEpisodic` | 73.8% | **99.1%** |
+| `ProtoCE` | **81.7%** | 98.0% |
+
+Episodic was chosen because it trains the embedding for the exact distance rule it uses at
+deployment, and it won on Felix (the larger, more recent, 5-session set). But CE beat it by
++7.9 pp on EM. **If the RingStrided numbers disappoint, the CE loss is the first thing to
+try** — it is a ~5-line subclass (override `_shared_step` + add the temporary `_ce_head`,
+exactly as `EmagerCNNProtoCE` does to `_EmagerProtoBase`), and the PTQ/QAT leaves would carry
+over unchanged.
+
+---
+
 ## Summary table
 
 | Model | Key difference | Params | File size | Overall acc (LOO)* |
@@ -507,6 +637,9 @@ accurate as episodic, but `f_θ` is not optimized for the distance rule directly
 | `EmagerCNNGAP` | Global avg pool, no FC | 36 K | 0.14 MB | 90.4% |
 | `EmagerCNNProtoEpisodic` | Few-shot prototypes, episodic training | 167 K | 0.65 MB | TBD¶ |
 | `EmagerCNNProtoCE` | Few-shot prototypes, CE-pretrained embedding | 167 K | 0.65 MB | TBD¶ |
+| `EmagerCNNProtoRingStrided` | Episodic prototypes on RingStrided arch | 44 K | 0.18 MB | TBD¶ |
+| `EmagerCNNProtoRingStridedPTQ` | …+ INT8 PTQ embedding | 44 K | **0.058 MB**§ | TBD¶ |
+| `EmagerCNNProtoRingStridedQAT` | …+ INT8 QAT embedding | 44 K | **0.058 MB**§ | TBD¶ |
 
 *Leave-one-out cross-validation across reps, averaged over seeds `[42, 123, 456]` on 3 datasets
 (`Test_EM_C7_R5`, `Test_EM_C7_R5_02`, `Test_EM_C7_R5_03`), 7 classes × 5 reps each, 10 epochs.
@@ -565,6 +698,9 @@ numbers are not directly comparable to the cross-entropy classifiers above. See
 | EmagerCNNGAP      | 93.9% ± 10.2% | 90.7% ± 6.0% | 86.6% ± 9.2% | 90.4% |
 | EmagerCNNProtoEpisodic¶ | TBD | TBD | TBD | TBD |
 | EmagerCNNProtoCE¶ | TBD | TBD | TBD | TBD |
+| EmagerCNNProtoRingStrided¶ | TBD | TBD | TBD | TBD |
+| EmagerCNNProtoRingStridedPTQ¶ | TBD | TBD | TBD | TBD |
+| EmagerCNNProtoRingStridedQAT¶ | TBD | TBD | TBD | TBD |
 
 ### Takeaways
 
@@ -609,6 +745,22 @@ For a **few-shot prototypical variant**, subclass `_EmagerProtoBase` instead and
 only `_shared_step` (the offline-training loss). The embedding architecture, the
 prototype computation, and the generic→few-shot eval flow in `fit()` are all inherited.
 `EmagerCNNProtoEpisodic` (episodic loss) and `EmagerCNNProtoCE` (cross-entropy head, dropped
-after training) are the two worked examples. To change the embedding backbone, override
-`self.features` in `__init__` after calling `super().__init__()`, keeping a final
-`Linear(..., embed_dim)` so the output is a D-dim embedding.
+after training) are the two worked examples. To change the embedding **backbone**, subclass
+one of those and override `self.features` in `__init__` after calling `super().__init__()`,
+keeping a final `Linear(..., embed_dim) + BN1d + ReLU` tail so the output is a D-dim
+embedding — `EmagerCNNProtoRingStrided` is the worked example.
+
+For an **INT8 few-shot variant**, subclass the FP32 proto variant and follow
+`EmagerCNNProtoRingStridedPTQ` / `…QAT`:
+- add `QuantStub`/`DeQuantStub` in `__init__` and override `embed()` to bracket **only the
+  embedding** (`quant → features → dequant`), leaving the prototype distance in FP32;
+- override `_fuse_groups` for your `features` layout;
+- keep the `Linear + BN1d + ReLU` embedding tail — `_fold_embed_bn()` folds the BN1d from the
+  tail end, so it works regardless of conv-stack depth;
+- call `_eval_fewshot()` **after** `convert()` so prototypes come from the quantized embedding.
+
+`_fold_bn1d_into_linear()` is the shared, exact BN1d→Linear fold used by both the classifier
+path (`EmagerCNNQuantizedPTQ._fold_classifier_bn`) and the embedding path
+(`_fold_embed_bn`). It exists because `QuantizedCPU` has no `nn.BatchNorm1d` kernel, so any
+BN1d that *receives a quantized tensor* must be folded away before `convert()`. A BN1d on the
+FP32 side of a `QuantStub` — e.g. `normalize` — is unaffected and stays put.

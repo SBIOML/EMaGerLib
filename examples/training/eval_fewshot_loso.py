@@ -532,7 +532,12 @@ def build_markdown(floors, swept, models, seeds, k_values, n_folds, elapsed, wit
     lift_pairs += [(f"{_short(m)}_after", f"{_short(m)}_before") for m in models]
     for after_key, floor_key in lift_pairs:
         floor_mean = _agg(floors[floor_key])[0]
-        cells = " | ".join(f"{_agg(swept[after_key][k])[0] - floor_mean:+.1%}" for k in k_values)
+        # A method with no defined floor (support-calibrated: no factory state exists)
+        # has no defined lift either -- render n/a rather than "+nan%".
+        cells = " | ".join(
+            "n/a" if np.isnan(floor_mean) else f"{_agg(swept[after_key][k])[0] - floor_mean:+.1%}"
+            for k in k_values
+        )
         L.append(f"| {label_for(after_key)} | {cells} |")
     L.append("")
     return "\n".join(L)

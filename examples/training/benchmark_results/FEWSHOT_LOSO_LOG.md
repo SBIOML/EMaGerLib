@@ -70,3 +70,44 @@ Most recent runs are appended below.
 | Proto-Episodic (k-shot) | +1.2% | +1.6% | +1.8% | +1.7% | +1.7% | +1.4% | +1.4% | +1.4% | +1.4% |
 | Proto-CE (k-shot) | +0.3% | +0.6% | +0.9% | +0.5% | +0.6% | +0.5% | +0.4% | +0.4% | +0.4% |
 
+## 2026-07-17 00:43:14  — Few-shot LOSO
+
+- **Sessions (leave-one-out):** Felix_5sessions/S_0, Felix_5sessions/S_1, Felix_5sessions/S_2, Felix_5sessions/S_3, Felix_5sessions/S_4
+- **Models:** EmagerCNNProtoRingStrided, EmagerCNNProtoRingStridedPTQ, EmagerCNNProtoRingStridedPTQFp32Protos, EmagerCNNProtoRingStridedPTQSupportCalib, EmagerCNNProtoRingStridedQAT
+- **Seeds:** [42, 123, 456]  |  **k (calibration reps/class):** [1, 2, 3, 4, 5, 6, 7, 8, 9]  (1 shot = 1 repetition; 1 rep held out as query)
+- **Fine-tune:** _CNN baseline skipped (--skip-cnn) — see an earlier run of the same sessions for the CNN rows_
+- **Offline:** 10 epochs  |  Window 200/10  |  Sampling 2000  |  Batch 64/256
+- **Folds:** 5 sessions × 3 seeds = 15 evals/method
+- **Host:** cpu · torch 2.10.0+cpu · py 3.12.3 · Windows-11-10.0.26200-SP0
+- **Elapsed:** 5h 10m 9s
+
+**Floors (no calibration, k-independent)**
+
+| Method | Acc |
+|---|---|
+| Proto-RingStrided (generic) | 97.2% ± 5.5% |
+| Proto-RingStridedPTQ (generic) | 97.4% ± 5.0% |
+| Proto-RingStridedPTQFp32Protos (generic) | 97.3% ± 4.9% |
+| Proto-RingStridedPTQSupportCalib (generic) | n/a |
+| Proto-RingStridedQAT (generic) | 97.3% ± 5.2% |
+
+**Calibrated (query accuracy vs k calibration reps/class)**
+
+| Method | k=1 rep | k=2 rep | k=3 rep | k=4 rep | k=5 rep | k=6 rep | k=7 rep | k=8 rep | k=9 rep |
+|---|---|---|---|---|---|---|---|---|---|
+| Proto-RingStrided (k-shot) | 98.7% ± 1.4% | 99.0% ± 1.0% | 99.0% ± 0.9% | 98.7% ± 1.7% | 98.8% ± 1.4% | 98.7% ± 1.8% | 98.6% ± 2.1% | 98.6% ± 2.0% | 98.6% ± 2.0% |
+| Proto-RingStridedPTQ (k-shot) | 98.7% ± 1.6% | 98.8% ± 1.5% | 99.0% ± 0.9% | 98.8% ± 1.4% | 98.8% ± 1.3% | 98.9% ± 1.0% | 98.9% ± 1.0% | 99.0% ± 0.9% | 98.9% ± 1.0% |
+| Proto-RingStridedPTQFp32Protos (k-shot) | 98.2% ± 2.3% | 98.7% ± 1.3% | 98.8% ± 1.0% | 98.6% ± 1.6% | 98.6% ± 1.5% | 98.5% ± 1.8% | 98.4% ± 2.1% | 98.5% ± 2.0% | 98.4% ± 2.0% |
+| Proto-RingStridedPTQSupportCalib (k-shot) | 98.5% ± 1.8% | 98.5% ± 2.1% | 98.8% ± 1.3% | 98.5% ± 2.1% | 98.5% ± 2.1% | 98.4% ± 2.3% | 98.4% ± 2.5% | 98.5% ± 2.2% | 98.5% ± 2.1% |
+| Proto-RingStridedQAT (k-shot) | 99.1% ± 0.6% | 98.5% ± 1.5% | 98.0% ± 2.9% | 97.9% ± 3.2% | 97.8% ± 3.1% | 98.3% ± 2.2% | 98.5% ± 2.0% | 98.5% ± 1.9% | 98.4% ± 2.1% |
+
+**Calibration lift (Δ accuracy vs each method's own floor, mean)**
+
+| Method (vs floor) | k=1 rep | k=2 rep | k=3 rep | k=4 rep | k=5 rep | k=6 rep | k=7 rep | k=8 rep | k=9 rep |
+|---|---|---|---|---|---|---|---|---|---|
+| Proto-RingStrided (k-shot) | +1.5% | +1.7% | +1.7% | +1.5% | +1.6% | +1.5% | +1.4% | +1.4% | +1.4% |
+| Proto-RingStridedPTQ (k-shot) | +1.4% | +1.4% | +1.6% | +1.4% | +1.5% | +1.6% | +1.6% | +1.6% | +1.5% |
+| Proto-RingStridedPTQFp32Protos (k-shot) | +0.9% | +1.3% | +1.5% | +1.2% | +1.3% | +1.2% | +1.1% | +1.2% | +1.1% |
+| Proto-RingStridedPTQSupportCalib (k-shot) | +nan% | +nan% | +nan% | +nan% | +nan% | +nan% | +nan% | +nan% | +nan% |
+| Proto-RingStridedQAT (k-shot) | +1.8% | +1.2% | +0.7% | +0.6% | +0.6% | +1.0% | +1.2% | +1.2% | +1.1% |
+

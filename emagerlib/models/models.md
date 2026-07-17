@@ -598,9 +598,62 @@ embedding classified by computed prototypes.
 
 ---
 
+### Measured: leave-one-session-out, Felix (2026-07-17)
+
+5 sessions × 3 seeds = 15 folds, k = calibration **repetitions** per class, episodic loss
+throughout. Full tables in [`FEWSHOT_LOSO_LOG.md`](../../examples/training/benchmark_results/FEWSHOT_LOSO_LOG.md).
+The k-shot column is the deployment figure.
+
+| Variant | generic floor | k=1 | k=5 | k=9 | size |
+|---|---|---|---|---|---|
+| `…ProtoRingStrided` (FP32) | 97.2% ± 5.5% | 98.7% | 98.8% | 98.6% | 185 KB |
+| **`…ProtoRingStridedPTQ`** | 97.4% ± 5.0% | 98.7% | **98.8%** | **98.9%** | **58 KB** |
+| `…ProtoRingStridedQAT` | 97.3% ± 5.2% | **99.1%** | 97.8% | 98.4% | 58 KB |
+| `…PTQFp32Protos` (ablation) | 97.3% ± 4.9% | 98.2% | 98.6% | 98.4% | 58 KB |
+| `…PTQSupportCalib` (diagnostic) | n/a | 98.5% | 98.5% | 98.5% | 58 KB |
+
+**INT8 is free — again.** PTQ matches FP32 to the decimal at k=5 (98.8% vs 98.8%) and edges
+it at k=9 (98.9% vs 98.6%), for **3.2× smaller weights**. This is the same result the plain
+classifiers showed (`QuantizedPTQ` 94.1% vs `Base` 94.1%), now confirmed on the prototypical
+line. `EmagerCNNProtoRingStridedPTQ` is the recommended deployment target.
+
+**QAT still does not pay.** 97.8% at k=5 vs PTQ's 98.8%, with 2.4× the variance (±3.1 vs
+±1.3), and it costs a fine-tuning phase to produce. It wins only at k=1 (99.1% ± 0.6%). That
+mirrors the Base-arch result (PTQ 94.1% > QAT 93.8%) — across four architectures now, the
+fake-quant fine-tuning has never recovered anything PTQ left behind. **Use PTQ.**
+
+**Cost of shrinking.** Against the Base-arch `EmagerCNNProtoEpisodic` on the same sessions
+(99.1% at k=5), RingStridedPTQ gives up **0.3 pp for 3.8× fewer params (167 K → 44 K) and
+11× smaller weights (650 KB FP32 → 58 KB INT8)**. Against `CNN + fine-tune` (99.4% at k=5,
+same protocol, 2026-07-15 run) it gives up **0.6 pp and needs no on-device backprop at all** —
+which is the whole point of the prototype rule.
+
+#### Measured: the two quantization-timing questions
+
+**Prototype ordering — the default is right, by a hair.** `PTQ` (prototypes from the INT8
+embedding) beats `PTQFp32Protos` (prototypes from the FP32 embedding) at **every one of the
+9 k values**, by +0.1 to +0.5 pp, mean **+0.3 pp**, and with consistently tighter spread.
+The margin is small and the k values are not independent (nested support sets, shared folds),
+so treat +0.3 pp as suggestive rather than decisive — but the direction never reverses.
+Computing prototypes *after* `convert()`, so they are means of the same INT8 vectors they are
+later compared against, is doing real (if modest) work. The deployment-faithful order is also
+the more accurate one, so there is no tension to resolve.
+
+> Caveat worth keeping: Felix is a near-ceiling dataset (floors already ~97%), which
+> compresses every difference here. The EM subject, whose zero-shot floor collapses to ~21%,
+> is where this ablation would have room to show a real effect. Untested there.
+
+**Observer calibration — nothing to fix.** `PTQSupportCalib` (activation ranges calibrated on
+the user's own k shots) scores 98.5% at k=5 against PTQ's 98.8% — no better, marginally
+worse. So factory-calibrated activation ranges **transfer fine to an unseen session**, and
+the calibration set does not need widening. This closes the question in the convenient
+direction: the shippable option is also the good one, and no export-time change is warranted.
+
+---
+
 #### ⚠ Loss choice on the deployment line
 
-This family uses the **episodic** loss on all three variants. That is a judgement call, and
+This family uses the **episodic** loss on all variants. That is a judgement call, and
 the evidence behind it is genuinely split — the two LOSO subjects disagree at k=5:
 
 | | EM subject | Felix subject |
@@ -640,6 +693,8 @@ over unchanged.
 | `EmagerCNNProtoRingStrided` | Episodic prototypes on RingStrided arch | 44 K | 0.18 MB | TBD¶ |
 | `EmagerCNNProtoRingStridedPTQ` | …+ INT8 PTQ embedding | 44 K | **0.058 MB**§ | TBD¶ |
 | `EmagerCNNProtoRingStridedQAT` | …+ INT8 QAT embedding | 44 K | **0.058 MB**§ | TBD¶ |
+| `EmagerCNNProtoRingStridedPTQFp32Protos` | Ablation: FP32-sourced prototypes | 44 K | 0.058 MB§ | ablation only‖ |
+| `EmagerCNNProtoRingStridedPTQSupportCalib` | Diagnostic: observers calibrated on user shots | 44 K | 0.058 MB§ | diagnostic only‖ |
 
 *Leave-one-out cross-validation across reps, averaged over seeds `[42, 123, 456]` on 3 datasets
 (`Test_EM_C7_R5`, `Test_EM_C7_R5_02`, `Test_EM_C7_R5_03`), 7 classes × 5 reps each, 10 epochs.
@@ -677,8 +732,17 @@ fixed — the harness now measures the serialized size — so 0.55 MB (Base arch
 `EmagerCNNProtoCE` is the **after 5-shot calibration** query accuracy; `fit()` also logs a
 *before-calibration* number (generic prototypes). These are a different paradigm from the
 rest of the table — no learned classifier, prototypes computed from a support set — so the
-numbers are not directly comparable to the cross-entropy classifiers above. See
-[Few-shot prototypical models](#few-shot-prototypical-models).
+numbers are not directly comparable to the cross-entropy classifiers above. The rep-LOO
+column stays TBD for the whole proto family on purpose: rep-LOO has no distribution shift,
+so it cannot show a calibration benefit. Their real numbers come from the leave-one-**session**-out
+harness — see [Measured: leave-one-session-out, Felix](#measured-leave-one-session-out-felix-2026-07-17)
+and [Few-shot prototypical models](#few-shot-prototypical-models).
+
+‖ **Not deployment candidates.** `…PTQFp32Protos` and `…PTQSupportCalib` are a fixed-variable
+ablation and a diagnostic; neither is shippable (the device has only the INT8 network, and
+TFLite Micro bakes activation scales in at export). They exist to test whether
+`EmagerCNNProtoRingStridedPTQ`'s defaults were the right calls — both say yes. See
+[the two quantization-timing questions](#measured-the-two-quantization-timing-questions).
 
 ### Per-dataset breakdown (LOO, mean ± std over reps × seeds)
 
@@ -714,6 +778,8 @@ numbers are not directly comparable to the cross-entropy classifiers above. See
 > **EmagerCNNGAP** is the only clear loser: −3.7% vs Base, and a large std on `Test_EM_C7_R5` (±10.2%) — removing the FC hidden layer costs too much capacity.
 > Variance grows on `_02` and `_03` (std up to ±9% on some models) — these splits are noticeably harder than the original `Test_EM_C7_R5`.
 > **Quantization (PTQ / QAT).** Full multi-dataset run: `EmagerCNNQuantizedPTQ` matches Base almost exactly (94.1% vs 94.1%) while shrinking the model ~4× (2.2 MB → 0.55 MB INT8) — quantization is essentially free on this architecture. `EmagerCNNQuantizedQAT` (93.8%) does **not** beat PTQ here — the fake-quant fine-tuning doesn't recover anything PTQ was leaving on the table, so PTQ is the better default unless a future architecture shows a bigger PTQ accuracy drop. `EmagerCNNRingStridedQAT` (93.9%, 44 K params, 0.057 MB) stacks INT8 QAT on the RingStrided collapse for the smallest deployable model in the file, at only −0.2 pp vs plain Base. `EmagerCNNRingStridedPTQ` (93.6%, same 44 K / 0.057 MB) is its PTQ counterpart — completing the {Base, RingStrided} × {PTQ, QAT} grid. On the RingStrided arch QAT edges PTQ by +0.3 pp (93.9% vs 93.6%), the mirror image of the Base-arch result where PTQ edged QAT (94.1% vs 93.8%) — so the two are within noise and quantization stays essentially free on this collapsed arch too. PTQ reaches ~99.7% of QAT's accuracy without the fine-tuning phase, so it is the cheaper default; and vs Base-arch PTQ (94.1%) it trades −0.5 pp accuracy for ~10× smaller weights (58 KB vs 567 KB) and ~18× fewer MACs (152 K vs 2.77 M). Notably PTQ *lifts* plain FP32 RingStrided by +0.4 pp (93.6% vs 93.2%) — INT8 rounding acts as mild regularization here rather than a cost.
+>
+> **Few-shot on RingStrided (the deployment line).** Measured LOSO on Felix (2026-07-17, 15 folds): `EmagerCNNProtoRingStridedPTQ` reaches **98.8% at k=5 in 58 KB / 44 K params**, matching its own FP32 version exactly (98.8%) — INT8 is free on the prototypical line too, as it was on the plain classifiers. It gives up 0.3 pp to the 3.8×-larger Base-arch `ProtoEpisodic` (99.1%) and 0.6 pp to `CNN + fine-tune` (99.4%), and in exchange needs **no on-device backprop** — the entire reason the prototype rule exists. QAT again fails to justify itself (97.8% at k=5, 2.4× the variance, plus a fine-tuning phase to produce); across four architectures now, PTQ has never lost to QAT by more than noise and usually wins. Both quantization-timing ablations vindicated the defaults: prototypes computed *after* `convert()` beat FP32-sourced ones at all 9 k values (+0.3 pp mean), and calibrating observers on the user's own shots bought nothing (98.5% vs 98.8%), so factory activation ranges transfer fine. Caveat: Felix floors sit ~97%, so every margin here is compressed — the EM subject (~21% floor) is where these questions would have room to breathe.
 >
 > **Few-shot prototypical (`ProtoEpisodic` / `ProtoCE`).** A different axis again — not *architecture* or *weight precision* but *how classification is done*. The embedding is trained offline; the classifier is just the mean of a few on-device examples per gesture (no on-device backprop). The number to watch is the **before→after k-shot delta**: how much a quick per-session calibration recovers. `ProtoEpisodic` trains `f_θ` for the distance rule directly; `ProtoCE` trains a plain classifier and reuses its embedding — compare the two to see whether episodic training is worth it here. This LOO-across-reps table's Overall column is still TBD for both since that eval isn't the right harness to isolate the calibration benefit (see the harness's own docstring for why) — see instead the dedicated leave-one-session-out harness (`eval_fewshot_loso.py`, full tables in `FEWSHOT_LOSO_LOG.md`), which has now run on two different subjects with a striking contrast: subject EM (`Test_EM_C7_R5*`, 3 sessions) shows severe zero-shot degradation across sessions — CNN floor **21.3% ± 8.2%**, barely above chance — recovered to 77–98% by k-shot calibration (lift up to **+76 pp**). Subject Felix (`Felix_5sessions/S_0..S_4`, 5 sessions, 10 reps each) shows almost no cross-session degradation at all — CNN floor **98.9% ± 1.0%**, already near-ceiling zero-shot — so calibration lift there tops out around **+0.6 pp**. The takeaway: whether few-shot calibration is worth having is highly subject/protocol-dependent — it's a large win only when zero-shot transfer is actually bad, and a rounding error when it isn't. A real deployment can't assume either regime a priori.
 

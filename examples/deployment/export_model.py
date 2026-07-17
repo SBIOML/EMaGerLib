@@ -20,13 +20,45 @@ calibrated on a representative set of real MAV windows -- this is what most
 Cortex-M inference kernels (CMSIS-NN) require. The int8 input/output scale and
 zero-point are printed and written to the report so you know how to feed the MCU.
 
+Prototypical models: the graph stops at the embedding
+-----------------------------------------------------
+The few-shot prototypical variants classify by distance to prototypes, and prototypes
+are USER DATA computed on the device after flashing. Folding them into the graph as
+constants (`--proto-export baked`) would freeze them at flash time and make on-device
+calibration impossible.
+
+So by default (`--proto-export embedding`) the exported graph is the embedding
+`f_theta` ALONE -- `[1,64] -> [1,D]` -- and the prototype distance ships as C source
+over a writable array:
+
+    MAV -> [ int8 TFLite embedding ] -> dequant -> [ C: distance to prototypes ] -> class
+             frozen at flash time                    rewritable at runtime
+
+This is the same boundary the PyTorch model already draws (the quantized proto variants
+bracket only embed() with Quant/DeQuant stubs). It costs nothing: the network is ~152k
+MAC, the distance is C*D = 448. Alongside the .tflite the tool emits emager_model_params.h,
+emager_prototypes.h (factory defaults) and copies c_runtime/emager_proto.{h,c}
+(classification + calibration). See examples/deployment/README.md.
+
+Verification is end-to-end regardless of mode: the reference is always the PyTorch
+model's FULL forward, and in embedding mode the tool re-attaches the prototype distance
+to the artifact's output before comparing -- so what is checked is "does the device
+predict the same class", not "is the embedding tensor close".
+
 Usage
 -----
     python examples/deployment/export_model.py                       # RingStrided, Test_EM_C7_R5
     python examples/deployment/export_model.py --model EmagerCNNRingStrided --dataset Test_EM_C7_R5
+    python examples/deployment/export_model.py --model EmagerCNNProtoRingStrided   # + C runtime
+    python examples/deployment/export_model.py --model EmagerCNNProtoRingStrided --proto-export baked
     python examples/deployment/export_model.py --checkpoint path/state_dict.pt --model EmagerCNNBase
     python examples/deployment/export_model.py --formats onnx tflite-int8 carray
     python examples/deployment/export_model.py --epochs 10 --calib-samples 300
+
+Export the FP32 variant (EmagerCNNProtoRingStrided), not the torch.ao INT8 ones
+(...PTQ/...QAT): those convert themselves during fit() and eager-mode quantized modules
+have no ONNX lowering. This pipeline does its own INT8 via TFLiteConverter anyway, so
+you get the same artifact. The tool refuses them with that message.
 
 Requires: torch, onnx, onnxruntime, tensorflow, onnx2tf, tf_keras
 (the "deploy" optional-dependency group -- `pip install -e ".[deploy]"`).
@@ -109,6 +141,77 @@ def train_model(model_name, num_classes, train_mav, train_labels, epochs):
     return model
 
 
+def is_proto(model) -> bool:
+    """True for the few-shot prototypical family (classify by distance to a
+    `prototypes` buffer rather than through a learned classifier)."""
+    return hasattr(model, "_prototypes_from")
+
+
+def check_exportable(model, model_name):
+    """
+    Reject models that torch.onnx.export cannot handle, with a pointer at the fix.
+
+    The torch.ao INT8 variants (…PTQ/…QAT) convert themselves during fit(), and eager-mode
+    quantized modules have no ONNX lowering. They are also redundant here: this pipeline
+    does its own INT8 via TFLiteConverter, calibrated on real MAV windows. Export the FP32
+    variant and let stage 3 quantize it.
+    """
+    if getattr(model, "_quantized", False):
+        fp32 = model_name.replace("QAT", "").replace("PTQ", "")
+        raise SystemExit(
+            f"\n{model_name} is a torch.ao-quantized model; its converted modules cannot be "
+            f"exported to ONNX.\n"
+            f"That chain targets PyTorch/FINN -- this tool quantizes to INT8 itself via "
+            f"TFLiteConverter.\n"
+            f"Export the FP32 variant instead and you get the same INT8 artifact:\n\n"
+            f"    --model {fp32}\n"
+        )
+
+
+def bake_prototypes(model, train_mav, train_labels):
+    """Compute generic 'factory' prototypes from the training reps and return them as
+    a (C, D) float32 ndarray. A plain fit() with no test set leaves the buffer at zeros."""
+    import torch
+    from torch.utils.data import DataLoader, TensorDataset
+
+    proto_dl = DataLoader(
+        TensorDataset(torch.from_numpy(train_mav), torch.from_numpy(train_labels)),
+        batch_size=256,
+    )
+    model.prototypes = model._prototypes_from(proto_dl)
+    model.eval().cpu()
+    return model.prototypes.detach().cpu().numpy().astype(np.float32)
+
+
+def embedding_only(model):
+    """
+    Wrap a prototypical model so forward() is embed(): (1, 64) -> (1, D).
+
+    The prototype distance is deliberately left OFF the exported graph. Prototypes are
+    user data computed on the device after flashing, so baking them into the network as
+    folded constants would make on-device calibration impossible. The device runs this
+    embedding in INT8 and does the distance itself against a writable array -- see
+    c_runtime/emager_proto.h.
+
+    This is the same boundary the PyTorch model already draws: the quantized proto
+    variants bracket only embed() with Quant/DeQuant stubs and compute the distance in
+    FP32.
+    """
+    import torch
+
+    class _EmbeddingOnly(torch.nn.Module):
+        def __init__(self, m):
+            super().__init__()
+            self.m = m
+
+        def forward(self, x):
+            return self.m.embed(x)
+
+    wrapper = _EmbeddingOnly(model)
+    wrapper.eval()
+    return wrapper
+
+
 # ----------------------------------------------------------------------------
 #  Reference logits (PyTorch, batch=1) -- ground truth for every verification
 # ----------------------------------------------------------------------------
@@ -145,11 +248,13 @@ def export_onnx(model, onnx_path, opset=17):
     logger.info(f"  [onnx]  wrote {onnx_path.name}  (opset {opset}, input [1,{N_FEATURES}])")
 
 
-def verify_onnx(onnx_path, ref_logits, val_x):
+def verify_onnx(onnx_path, ref_logits, val_x, protos=None):
     import onnxruntime as ort
     sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
     name = sess.get_inputs()[0].name
     out = np.stack([sess.run(None, {name: row[None, :].astype(np.float32)})[0][0] for row in val_x])
+    if protos is not None:
+        out = proto_logits(out, protos)   # graph emits embeddings; close the loop here
     return agreement(ref_logits, out)
 
 
@@ -206,8 +311,19 @@ def convert_int8_tflite(saved_model_dir, out_path, calib_x):
     return out_path
 
 
-def verify_tflite(tflite_path, ref_logits, val_x):
-    """Run a float or int8 .tflite one sample at a time; returns (top1%, maxdiff, quant_info)."""
+def verify_tflite(tflite_path, ref_logits, val_x, protos=None):
+    """
+    Run a float or int8 .tflite one sample at a time; returns (top1%, maxdiff, quant_info).
+
+    When `protos` is given the graph is the embedding only, so this reproduces the whole
+    on-device path exactly as emager_proto.c does it:
+
+        float MAV -> int8 quantize -> TFLite -> dequantize -> prototype distance -> argmax
+
+    and still compares against the PyTorch model's complete forward. Checking the
+    embedding tensor alone would say nothing about whether the device predicts the same
+    class, which is the only thing that matters.
+    """
     import tensorflow as tf
     interp = tf.lite.Interpreter(model_path=str(tflite_path))
     interp.allocate_tensors()
@@ -218,7 +334,7 @@ def verify_tflite(tflite_path, ref_logits, val_x):
     out_scale, out_zp = out["quantization"]
     is_int8 = inp["dtype"] == np.int8
 
-    logits = []
+    outputs = []
     for row in val_x:
         x = row[None, :].astype(np.float32)
         if is_int8:
@@ -228,8 +344,12 @@ def verify_tflite(tflite_path, ref_logits, val_x):
         y = interp.get_tensor(out["index"])[0].astype(np.float32)
         if out["dtype"] == np.int8:
             y = (y - out_zp) * out_scale
-        logits.append(y)
-    top1, maxd = agreement(ref_logits, np.stack(logits))
+        outputs.append(y)
+
+    logits = np.stack(outputs)
+    if protos is not None:
+        logits = proto_logits(logits, protos)
+    top1, maxd = agreement(ref_logits, logits)
     quant = {"in_scale": in_scale, "in_zp": in_zp, "out_scale": out_scale,
              "out_zp": out_zp, "int8_io": is_int8}
     return top1, maxd, quant
@@ -238,6 +358,109 @@ def verify_tflite(tflite_path, ref_logits, val_x):
 # ----------------------------------------------------------------------------
 #  Stage 4: C array (TFLite Micro style header)
 # ----------------------------------------------------------------------------
+
+def proto_logits(embeddings, protos):
+    """
+    Prototype distance, in numpy, matching BOTH the PyTorch forward and emager_proto.c:
+        logit_c = -||e - p_c||^2 / D
+
+    embeddings: (N, D)   protos: (C, D)  ->  (N, C)
+    """
+    d = ((embeddings[:, None, :] - protos[None, :, :]) ** 2).sum(-1)
+    return -d / embeddings.shape[1]
+
+
+def write_model_params_header(path, n_features, embed_dim, n_classes, quant, model_name):
+    """Dimensions + INT8 scale/zero-point, read off the actual .tflite."""
+    path.write_text("\n".join([
+        "/* Auto-generated by examples/deployment/export_model.py -- do not edit.",
+        f" * Model: {model_name}",
+        " *",
+        " * The scale/zero-point values are read from the exported .tflite, not chosen.",
+        " * Re-export if you retrain: they change with the calibration data.",
+        " */",
+        "#ifndef EMAGER_MODEL_PARAMS_H",
+        "#define EMAGER_MODEL_PARAMS_H",
+        "",
+        "/* Input: MAV over a 200-sample window of the 4x16 electrode grid. */",
+        f"#define EMAGER_N_FEATURES        {n_features}",
+        "/* Output of the exported network: the embedding f_theta(x). */",
+        f"#define EMAGER_EMBED_DIM         {embed_dim}",
+        f"#define EMAGER_N_CLASSES         {n_classes}",
+        "",
+        "/* TFLite affine quantization: real = scale * (q - zero_point) */",
+        f"#define EMAGER_INPUT_SCALE       {quant['in_scale']:.10g}f",
+        f"#define EMAGER_INPUT_ZERO_POINT  ({int(quant['in_zp'])})",
+        f"#define EMAGER_EMBED_SCALE       {quant['out_scale']:.10g}f",
+        f"#define EMAGER_EMBED_ZERO_POINT  ({int(quant['out_zp'])})",
+        "",
+        "#endif /* EMAGER_MODEL_PARAMS_H */",
+        "",
+    ]), encoding="ascii")
+    logger.info(f"  [c]     wrote {path.name}  (dims + int8 scale/zero-point)")
+
+
+def write_prototypes_header(path, protos, model_name, dataset, source_note):
+    """
+    Factory prototypes as a compile-time default.
+
+    Deliberately `static const`: these are the shipped fallback, computed at the factory
+    from training data. The device overwrites them at runtime with the user's own
+    calibration (into a mutable emager_prototypes_t) -- that copy is what gets persisted.
+    """
+    n_classes, embed_dim = protos.shape
+    lines = [
+        "/* Auto-generated by examples/deployment/export_model.py -- do not edit.",
+        f" * Factory prototypes for {model_name}",
+        f" * Source: {source_note}",
+        f" * Dataset: {dataset}",
+        " *",
+        " * These are the 'shipped' defaults: generic prototypes computed at the factory,",
+        " * good enough to work uncalibrated. On-device calibration REPLACES them with the",
+        " * user's own (see emager_calib_* in emager_proto.h) -- copy this into a mutable",
+        " * emager_prototypes_t first, do not try to write through this const.",
+        " */",
+        "#ifndef EMAGER_PROTOTYPES_H",
+        "#define EMAGER_PROTOTYPES_H",
+        "",
+        '#include "emager_proto.h"',
+        "",
+        "static const emager_prototypes_t EMAGER_FACTORY_PROTOTYPES = {",
+        "    .v = {",
+    ]
+    for c in range(n_classes):
+        lines.append(f"        /* class {c} */ {{")
+        row = protos[c]
+        for i in range(0, embed_dim, 6):
+            chunk = ", ".join(f"{v: .8e}f" for v in row[i:i + 6])
+            lines.append(f"            {chunk},")
+        lines.append("        },")
+    lines += [
+        "    },",
+        "    .valid = { " + ", ".join("1" for _ in range(n_classes)) + " },",
+        "};",
+        "",
+        "#endif /* EMAGER_PROTOTYPES_H */",
+        "",
+    ]
+    # ascii, deliberately: these headers go into embedded toolchains, and encoding="ascii"
+    # fails here at generation time rather than on the target's compiler.
+    path.write_text("\n".join(lines), encoding="ascii")
+    logger.info(f"  [c]     wrote {path.name}  (factory prototypes, {n_classes}x{embed_dim})")
+
+
+def copy_c_runtime(out_dir):
+    """Copy the hand-written C runtime next to the generated headers so the output dir
+    is a self-contained drop-in for a firmware project."""
+    import shutil
+    src = Path(__file__).parent / "c_runtime"
+    copied = []
+    for f in sorted(src.glob("emager_proto.*")):
+        shutil.copy2(f, out_dir / f.name)
+        copied.append(f.name)
+    logger.info(f"  [c]     copied runtime: {', '.join(copied)}")
+    return copied
+
 
 def tflite_to_c_array(tflite_path, header_path, var_name="g_model"):
     data = tflite_path.read_bytes()
@@ -251,7 +474,7 @@ def tflite_to_c_array(tflite_path, header_path, var_name="g_model"):
         chunk = ", ".join(f"0x{b:02x}" for b in data[i:i + 12])
         lines.append(f"  {chunk},")
     lines += ["};", f"const unsigned int {var_name}_len = {len(data)};", ""]
-    header_path.write_text("\n".join(lines))
+    header_path.write_text("\n".join(lines), encoding="ascii")
     logger.info(f"  [carray] wrote {header_path.name}  ({len(data)} bytes -> {var_name}[])")
     return header_path
 
@@ -291,21 +514,34 @@ def run(args):
         model = load_checkpoint_model(args.model, num_classes, args.checkpoint)
     else:
         model = train_model(args.model, num_classes, train_mav, train_labels, args.epochs)
-
-    # Few-shot prototypical models classify by distance to a `prototypes` buffer
-    # that a plain fit() (no test set) leaves at zeros. Bake in generic "factory"
-    # prototypes from the training reps so the exported forward is self-contained.
-    if hasattr(model, "_prototypes_from"):
+        # Keep the weights that produced this export. Without this the FP32 source of a
+        # shipped artifact is unreproducible -- training is not seeded, so re-running the
+        # tool gives a different model, and the EXPORT_REPORT's accuracy would then belong
+        # to weights that no longer exist anywhere. Re-export byte-identically with
+        # --checkpoint <this file>.
         import torch
-        from torch.utils.data import DataLoader, TensorDataset
-        proto_dl = DataLoader(
-            TensorDataset(torch.from_numpy(train_mav), torch.from_numpy(train_labels)),
-            batch_size=256,
-        )
-        model.prototypes = model._prototypes_from(proto_dl)
-        model.eval().cpu()
-        logger.info(f"  baked generic prototypes from training reps  "
-                    f"(shape {tuple(model.prototypes.shape)})")
+        ckpt = out_dir / "model_fp32.pt"
+        torch.save(model.state_dict(), ckpt)
+        logger.info(f"  saved FP32 weights -> {ckpt.name}  (re-export with --checkpoint)")
+
+    check_exportable(model, args.model)
+
+    # Few-shot prototypical models classify by distance to a `prototypes` buffer that a
+    # plain fit() (no test set) leaves at zeros. Compute generic "factory" prototypes
+    # from the training reps either way -- in `embedding` mode they are emitted as a C
+    # header, in `baked` mode they are folded into the graph.
+    protos = None
+    proto_mode = args.proto_export
+    if is_proto(model):
+        protos = bake_prototypes(model, train_mav, train_labels)
+        logger.info(f"  computed generic prototypes from training reps  (shape {protos.shape})")
+        logger.info(f"  prototype export mode: {proto_mode}"
+                    + ("  (embedding on the graph, prototypes writable in C)"
+                       if proto_mode == "embedding"
+                       else "  (prototypes folded into the graph -- NOT recalibratable)"))
+    elif proto_mode == "embedding":
+        # Not a proto model: nothing to split off, so fall back silently to the whole graph.
+        proto_mode = "baked"
 
     # Verification / calibration subsets (cap for speed).
     rng = np.random.default_rng(0)
@@ -314,10 +550,20 @@ def run(args):
     calib_idx = rng.permutation(len(train_mav))[: args.calib_samples]
     calib_x   = train_mav[calib_idx]
 
+    # Reference is always the model's FULL forward (embedding + prototype distance),
+    # so `embedding` mode is held to the same standard as `baked`: the device must
+    # predict the same class, not merely produce a similar embedding.
     ref_logits = torch_logits(model, verify_x)
     torch_acc  = float(np.mean(ref_logits.argmax(1) == verify_y) * 100.0)
     logger.info(f"  PyTorch reference top-1 on held-out rep: {torch_acc:.1f}%  "
                 f"({len(verify_x)} windows)")
+    report += [f"- Model: `{args.model}`  |  Dataset: `{args.dataset}`"]
+    if is_proto(model):
+        report += [f"- Prototype export mode: **{proto_mode}**"
+                   + ("  — the graph is the embedding `f_θ` only; prototypes live in "
+                      "`emager_prototypes.h` and are rewritable on device."
+                      if proto_mode == "embedding"
+                      else "  — prototypes folded into the graph; **not** recalibratable on device.")]
     report += [f"- PyTorch reference accuracy (held-out rep): **{torch_acc:.1f}%** "
                f"on {len(verify_x)} windows", ""]
     report += ["| Artifact | Size | Top-1 agreement vs PyTorch | Max logit diff |",
@@ -325,13 +571,19 @@ def run(args):
 
     onnx_path = out_dir / "model.onnx"
 
+    # In `embedding` mode everything downstream converts the embedding-only graph, and
+    # every verification has to re-attach the prototype distance to get back to logits.
+    embedding_mode = is_proto(model) and proto_mode == "embedding"
+    export_target  = embedding_only(model) if embedding_mode else model
+    verify_protos  = protos if embedding_mode else None
+
     # -- Stage 1: ONNX -------------------------------------------------------
     need_onnx = formats & {"onnx", "tflite-fp32", "tflite-int8", "carray"}
     if need_onnx:
         logger.info("Stage 1: ONNX export ...")
-        export_onnx(model, onnx_path)
+        export_onnx(export_target, onnx_path)
         if "onnx" in formats:
-            top1, maxd = verify_onnx(onnx_path, ref_logits, verify_x)
+            top1, maxd = verify_onnx(onnx_path, ref_logits, verify_x, protos=verify_protos)
             logger.info(f"  [onnx]  agreement {top1:.1f}%  maxdiff {maxd:.2e}")
             report.append(f"| model.onnx | {onnx_path.stat().st_size/1024:.1f} KiB | "
                           f"{top1:.1f}% | {maxd:.2e} |")
@@ -340,12 +592,20 @@ def run(args):
     int8_path = out_dir / "model_int8.tflite"
     if formats & {"tflite-fp32", "tflite-int8", "carray"}:
         logger.info("Stage 2: ONNX -> TF SavedModel + float32 TFLite (onnx2tf) ...")
-        saved_model_dir, fp32_src = onnx_to_saved_model(onnx_path, work_dir)
+        # onnx2tf runs its simplifier over the input ONNX and rewrites it IN PLACE
+        # (~9 KiB smaller). Left alone, that would swap the shipped model.onnx for one
+        # that was never verified -- verify_onnx() ran against the pre-simplification
+        # graph. Hand onnx2tf a scratch copy so the artifact on disk stays exactly the
+        # bytes the report vouches for.
+        import shutil
+        onnx_for_tf = work_dir / "model_for_tf.onnx"
+        shutil.copy2(onnx_path, onnx_for_tf)
+        saved_model_dir, fp32_src = onnx_to_saved_model(onnx_for_tf, work_dir)
 
         if "tflite-fp32" in formats:
             fp32_path = out_dir / "model_float32.tflite"
             fp32_path.write_bytes(fp32_src.read_bytes())
-            top1, maxd, _ = verify_tflite(fp32_path, ref_logits, verify_x)
+            top1, maxd, _ = verify_tflite(fp32_path, ref_logits, verify_x, protos=verify_protos)
             logger.info(f"  [fp32]  agreement {top1:.1f}%  maxdiff {maxd:.2e}")
             report.append(f"| model_float32.tflite | {fp32_path.stat().st_size/1024:.1f} KiB | "
                           f"{top1:.1f}% | {maxd:.2e} |")
@@ -354,24 +614,63 @@ def run(args):
         if formats & {"tflite-int8", "carray"}:
             logger.info("Stage 3: full-INT8 TFLite (representative-dataset calibration) ...")
             convert_int8_tflite(saved_model_dir, int8_path, calib_x)
-            top1, maxd, quant = verify_tflite(int8_path, ref_logits, verify_x)
+            top1, maxd, quant = verify_tflite(int8_path, ref_logits, verify_x, protos=verify_protos)
             logger.info(f"  [int8]  agreement {top1:.1f}%  maxdiff {maxd:.2e}")
             logger.info(f"  [int8]  input  scale={quant['in_scale']:.6g} zero_point={quant['in_zp']}")
             logger.info(f"  [int8]  output scale={quant['out_scale']:.6g} zero_point={quant['out_zp']}")
             report.append(f"| model_int8.tflite | {int8_path.stat().st_size/1024:.1f} KiB | "
                           f"{top1:.1f}% | {maxd:.2e} |")
+            out_label = "embedding" if embedding_mode else "logit"
             report += ["",
                        "## INT8 on-device I/O quantization",
                        "TFLite affine quant: `real = scale * (q_int8 - zero_point)`.",
                        f"- input : `q = round(mav / {quant['in_scale']:.8g}) + ({quant['in_zp']})`",
-                       f"- output: `logit = (q - ({quant['out_zp']})) * {quant['out_scale']:.8g}`", ""]
+                       f"- output: `{out_label} = (q - ({quant['out_zp']})) * {quant['out_scale']:.8g}`",
+                       "",
+                       "`emager_proto.c` already does both of these for you "
+                       "(`emager_quantize_input` / `emager_dequantize_embedding`) using the "
+                       "constants in `emager_model_params.h`.", ""]
 
     # -- Stage 4: C array ----------------------------------------------------
     if "carray" in formats:
         logger.info("Stage 4: C array header ...")
-        tflite_to_c_array(int8_path, out_dir / "model_int8.h")
+        tflite_to_c_array(int8_path, out_dir / "emager_model_data.h")
 
-    (out_dir / "EXPORT_REPORT.md").write_text("\n".join(report))
+    # -- Stage 5: C runtime + generated headers (prototypical models) ---------
+    if embedding_mode and formats & {"tflite-int8", "carray"}:
+        logger.info("Stage 5: C runtime + generated headers ...")
+        write_model_params_header(out_dir / "emager_model_params.h", N_FEATURES,
+                                  int(protos.shape[1]), int(protos.shape[0]), quant, args.model)
+        write_prototypes_header(out_dir / "emager_prototypes.h", protos, args.model,
+                                args.dataset, "generic prototypes, mean embedding per class "
+                                              "over the training reps")
+        copy_c_runtime(out_dir)
+        report += ["## On-device prototypes",
+                   "",
+                   f"The graph is the embedding `f_θ` only — `[1,{N_FEATURES}] → "
+                   f"[1,{protos.shape[1]}]`. The prototype distance is **not** on the graph, "
+                   "so the prototypes stay writable after flashing and the device can "
+                   "recalibrate them from the user's own gestures (no backprop — just a "
+                   "forward pass and a per-class mean).",
+                   "",
+                   "| File | Role |",
+                   "|---|---|",
+                   "| `emager_model_data.h` | the INT8 embedding network, as a C byte array |",
+                   "| `emager_model_params.h` | dims + INT8 scale/zero-point (generated from this .tflite) |",
+                   "| `emager_prototypes.h` | factory prototypes — the shipped default |",
+                   "| `emager_proto.h` / `.c` | classify + on-device calibration |",
+                   "",
+                   f"Prototype storage: `{protos.shape[0]}×{protos.shape[1]}` float32 + "
+                   f"{protos.shape[0]} validity flags = "
+                   f"**{protos.shape[0] * protos.shape[1] * 4 + protos.shape[0]} bytes** of data to "
+                   "persist after calibration. The struct is a little larger once padded — "
+                   "`EMAGER_PROTOTYPES_NBYTES` in `emager_proto.h` is the authoritative size.",
+                   "",
+                   "See [`../../README.md`](../../README.md) for the firmware integration guide.", ""]
+
+    # utf-8, not the platform default: the report contains non-ASCII (f_θ, ×) and
+    # Windows would otherwise default to cp1252 and raise on it.
+    (out_dir / "EXPORT_REPORT.md").write_text("\n".join(report), encoding="utf-8")
     if not args.keep_work and work_dir.exists():
         import shutil
         shutil.rmtree(work_dir, ignore_errors=True)
@@ -387,6 +686,12 @@ def parse_args(argv=None):
     p.add_argument("--epochs", type=int, default=10, help="training epochs when no checkpoint")
     p.add_argument("--formats", nargs="+", default=["onnx", "tflite-fp32", "tflite-int8", "carray"],
                    choices=["onnx", "tflite-fp32", "tflite-int8", "carray"])
+    p.add_argument("--proto-export", default="embedding", choices=["embedding", "baked"],
+                   help="prototypical models only. 'embedding' (default) exports f_theta alone "
+                        "and emits the prototypes as a C header, so the device can recalibrate "
+                        "them from the user's gestures. 'baked' folds the prototypes into the "
+                        "graph: self-contained, but frozen at flash time. Ignored for "
+                        "non-prototypical models.")
     p.add_argument("--calib-samples", type=int, default=300, help="representative windows for int8")
     p.add_argument("--verify-samples", type=int, default=256, help="held-out windows for verification")
     p.add_argument("--out", default=None, help="output dir (default: examples/deployment/exported/<model>)")
@@ -397,6 +702,12 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
+    try:
+        # Windows consoles default to cp1252, which cannot encode the report's f_θ / ×.
+        # Same guard as eval_fewshot_loso.py.
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO),
                         format="%(message)s")
     run(args)

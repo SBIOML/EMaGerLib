@@ -23,19 +23,28 @@ numerically verified against the PyTorch reference. INT8 is a full-integer
 quantization (int8 weights + int8 I/O) calibrated on real MAV windows via
 TensorFlow's `TFLiteConverter` — a converter-side quantization path, separate from
 the in-repo `torch.ao.quantization` INT8 chain below (which targets PyTorch/FINN,
-not TFLite). `EmagerCNNRingStrided` is the recommended first MCU target among the
-plain classifiers (smallest architecture variant); the prototypical models export
-too (generic prototypes are baked in). See
-[`examples/deployment/README.md`](../../examples/deployment/README.md).
+not TFLite). See [`examples/deployment/README.md`](../../examples/deployment/README.md)
+for the tool, the firmware integration guide, and flashing.
 
-> **Not yet wired up:** the export tool predates the
-> [RingStrided proto family](#few-shot-on-the-ringstrided-architecture-deployment-line)
-> and has not been run against it. Those models are the intended MCU target
-> (44 K params / ~58 KB INT8 / gradient-free on-device calibration), and exporting them
-> raises a question the current tool does not answer: prototypes are *user data computed on
-> device*, so baking generic ones in at export time is only the factory default — the C API
-> needs a way to **rewrite the prototype buffer after calibration**. Updating the ONNX/TFLite
-> path for this family is the next deployment task.
+**`EmagerCNNProtoRingStrided` is the recommended MCU target** (44 K params, **54 KiB**
+INT8, and per-user calibration with no backprop on the device).
+`EmagerCNNRingStrided` is the equivalent if you want a plain classifier and no
+calibration.
+
+> **Prototypes are not baked into the graph.** They are *user data computed on device*,
+> so folding them in as constants would freeze them at flash time. By default the export
+> emits the embedding `f_θ` alone as the `.tflite` and ships the prototype distance as C
+> over a writable array (`emager_proto.{h,c}` + generated `emager_prototypes.h`), so the
+> device can recalibrate from the user's own gestures. The split is free — the network is
+> ~152 K MAC, the distance is 448 — and it is the same boundary the quantized proto
+> variants already draw internally. `--proto-export baked` restores the old
+> fold-it-in behaviour for devices that will never calibrate.
+>
+> Export the **FP32** variant (`EmagerCNNProtoRingStrided`), not the `…PTQ`/`…QAT` ones:
+> those convert through `torch.ao` during `fit()` and eager-mode quantized modules have no
+> ONNX lowering. The pipeline does its own INT8 anyway, so the artifact is the same.
+> Verified end-to-end: the generated C compiles clean under `-Wall -Wextra -Werror` and
+> reproduces PyTorch's predictions exactly (100% on 128 held-out windows).
 
 ---
 

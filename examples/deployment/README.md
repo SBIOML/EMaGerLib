@@ -414,8 +414,9 @@ The N6 is a reasonable board to *have*, but the speedup over an M4F running CMSI
 will not be what justifies it — the acquisition and windowing dominate.
 
 Toolchain setup, VS Code configuration and a firmware skeleton for the NUCLEO-N657X0-Q
-live in [`stm32n6-firmware/`](../../stm32n6-firmware/) — staged in this repo, but
-self-contained and meant to be split out into its own repository (see its README).
+live in a separate repository, `emager-stm32n6-firmware` — deliberately not in this
+one. Nothing embedded belongs in a Python toolbox, and the firmware depends on this
+repo only through the files `export_model.py` copies into it.
 
 ---
 

@@ -455,9 +455,13 @@ def copy_c_runtime(out_dir):
     import shutil
     src = Path(__file__).parent / "c_runtime"
     copied = []
-    for f in sorted(src.glob("emager_proto.*")):
-        shutil.copy2(f, out_dir / f.name)
-        copied.append(f.name)
+    # emager_selftest.* is copied too, but it will not compile until make_test_vectors.py
+    # has written emager_test_vectors.h next to it -- that header needs this export's
+    # weights, so it cannot be produced here.
+    for pattern in ("emager_proto.*", "emager_selftest.*"):
+        for f in sorted(src.glob(pattern)):
+            shutil.copy2(f, out_dir / f.name)
+            copied.append(f.name)
     logger.info(f"  [c]     copied runtime: {', '.join(copied)}")
     return copied
 

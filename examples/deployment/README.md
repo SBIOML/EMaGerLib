@@ -32,6 +32,7 @@ is fixed to 1 — one inference at a time, the way an MCU runs it.
   - [4. On-device calibration](#4-on-device-calibration)
   - [5. Persisting prototypes](#5-persisting-prototypes)
   - [STM32 X-CUBE-AI instead of TFLite Micro](#stm32-x-cube-ai-instead-of-tflite-micro)
+  - [STM32N6 is a different target, not a faster one](#stm32n6-is-a-different-target-not-a-faster-one)
 - [Flashing](#flashing)
 - [Verifying the port](#verifying-the-port)
 - [How it works / notes](#how-it-works--notes)
@@ -62,6 +63,9 @@ python examples/deployment/export_model.py --model EmagerCNNProtoRingStrided \
 
 # only some artifacts
 python examples/deployment/export_model.py --formats onnx tflite-int8 carray
+
+# reference data to check the port once it is on the board
+python examples/deployment/make_test_vectors.py --model EmagerCNNProtoRingStrided
 ```
 
 Key flags:
@@ -161,6 +165,8 @@ Everything lands in `examples/deployment/exported/<model>/` (git-ignored):
 | `emager_model_params.h` | dims + INT8 scale/zero-point, **read off the real `.tflite`** | generated — never hand-edit |
 | `emager_prototypes.h` | factory prototypes (`EMAGER_FACTORY_PROTOTYPES`) | the shipped default |
 | `emager_proto.h` / `.c` | classify + on-device calibration | the part you call |
+| `emager_selftest.h` / `.c` | replays test vectors through your firmware | verifying the port |
+| `emager_test_vectors.h` | **not written by this tool** — see `make_test_vectors.py` | reference data for the above |
 | `model.onnx` | ONNX graph, fixed `[1,64]` input | ONNX Runtime; X-CUBE-AI |
 | `model_float32.tflite` | float TFLite | debugging / MPU-class targets |
 | `model_fp32.pt` | the FP32 weights this export came from | reproduce with `--checkpoint` |
@@ -384,6 +390,33 @@ X-CUBE-AI's *Validate on target* is worth running: it reports on-device latency 
 checks the network against reference inputs, which the report in this repo cannot do
 from the host.
 
+### STM32N6 is a different target, not a faster one
+
+The block above describes classic Cortex-M STM32s (M4/M7/M33), where X-CUBE-AI emits a
+software kernel library and the `ai_*` API. **The STM32N6 does not work that way**, and
+assuming it does is the fastest way to lose a day:
+
+- The network is compiled for the **Neural-ART NPU** by the ST Edge AI Core / Neural-ART
+  compiler, and the generated code is driven by the **LL_ATON** runtime — a different
+  API from `ai_network_run()`.
+- The N6 has **no internal flash.** Code and `const` data live in external OSPI flash,
+  the application boots via an FSBL, and images must be **signed** before they can be
+  programmed. Every "put it in a flash sector" instruction on this page needs rethinking
+  there — including prototype persistence, which lands in the same external flash the
+  firmware itself occupies.
+- Ops the NPU does not implement fall back to the Cortex-M55. For this model that
+  matters: the ring padding lowers to `CONCATENATION`/`SLICE`/`SPLIT`/`TRANSPOSE` and
+  the input BatchNorm stays in float (`MUL`/`ADD`). Run `stedgeai analyze` and read the
+  epoch breakdown before assuming the whole graph is accelerated.
+
+Also worth saying plainly: at ~152 K MAC and 54 KiB this model does not need an NPU.
+The N6 is a reasonable board to *have*, but the speedup over an M4F running CMSIS-NN
+will not be what justifies it — the acquisition and windowing dominate.
+
+Toolchain setup, VS Code configuration and a firmware skeleton for the NUCLEO-N657X0-Q
+live in [`stm32n6-firmware/`](../../stm32n6-firmware/) — staged in this repo, but
+self-contained and meant to be split out into its own repository (see its README).
+
 ---
 
 ## Flashing
@@ -416,7 +449,48 @@ accept re-calibration after every update and say so in the UI.
 ## Verifying the port
 
 The export tool verifies the artifacts against PyTorch on the host. It cannot verify
-*your firmware*. To check the port itself, pin one thing at a time:
+*your firmware*.
+
+The quickest way to close that gap is the on-device self-test. Generate reference data
+from the export you flashed, then replay it on the board:
+
+```bash
+python examples/deployment/make_test_vectors.py --model EmagerCNNProtoRingStrided
+#   -> exported/<model>/emager_test_vectors.h   (32 held-out windows + expected embeddings)
+```
+
+```c
+#include "emager_selftest.h"
+
+emager_selftest_result_t r;
+emager_prototypes_t factory;
+memcpy(&factory, &EMAGER_FACTORY_PROTOTYPES, sizeof(factory));
+
+if (!emager_selftest_run(my_forward, &factory, &r)) {
+    printf("selftest FAILED: embed %u/%u, class %u/%u, worst err %ld LSB on vector %u\n",
+           r.n_embed_ok, r.n_vectors, r.n_class_ok, r.n_vectors,
+           (long)r.embed_max_abs_err, r.worst_vector);
+}
+```
+
+`my_forward` is your runtime's `int8[64] -> int8[D]` call — TFLM's `Invoke()`,
+X-CUBE-AI's `ai_network_run()`, or the N6's LL_ATON entry point. Passing it as a
+function pointer is what keeps the check independent of which one you chose.
+
+Read the two counters separately, because they fail for unrelated reasons:
+
+- **embeddings match, class differs** → the network is fine; the prototypes are not.
+  Stale persisted blob, wrong `valid` flags — or the device has simply been calibrated,
+  which changes the class for the same embedding *by design*. The class column of the
+  vectors only describes the factory prototypes.
+- **embeddings differ** → the network path: MAV feature mismatch (window size,
+  increment, channel order), wrong input quantization, or a mis-wired runtime.
+
+The tolerance is 2 INT8 LSBs rather than 0 on purpose — the host runs TFLite's reference
+kernels, the device runs CMSIS-NN or an NPU, and they need not agree on the last bit of
+rounding.
+
+To go further, or if the self-test itself will not build, pin one thing at a time:
 
 1. **Feed a known MAV vector** through `emager_predict()` and compare against the host.
    Reproduce a host-side reference with:

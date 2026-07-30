@@ -50,6 +50,18 @@ deploy = [
     "tensorflow",
     "onnx2tf",
     "tf_keras",      # onnx2tf needs it to emit a TF SavedModel for INT8 conversion
+    "onnx-graphsurgeon",  # onnx2tf imports this unconditionally but does not
+                          # declare it as a dependency -- without it, `import
+                          # onnx2tf` fails with ModuleNotFoundError at import time.
+    "psutil",             # same story: onnx2tf.utils.common_functions imports it
+                          # unconditionally without declaring the dependency.
+    "onnxsim",            # onnx2tf silently skips simplification if this is missing
+                          # (no error) -- for this model that silent skip is not
+                          # cosmetic: it leaves a dynamic Pad node onnx2tf's own
+                          # NCHW->NHWC axis remap mishandles, corrupting a later
+                          # Conv's channel count. Needs a C++ toolchain to build (no
+                          # prebuilt wheel) -- see export-model.ps1 / doc 1 if this
+                          # fails with "Could not find cmake executable".
 ]
 
 [project.scripts]

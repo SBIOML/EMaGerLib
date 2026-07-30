@@ -272,11 +272,28 @@ def verify_onnx(onnx_path, ref_logits, val_x, protos=None):
 def onnx_to_saved_model(onnx_path, work_dir):
     import onnx2tf
     sm = work_dir / "saved_model"
+    # flatbuffer_direct_output_saved_model was removed from onnx2tf's convert() in a
+    # later release (present when this pipeline was first written, gone by 1.28.8) --
+    # the SavedModel + float32 .tflite it forced are onnx2tf's default outputs now, so
+    # dropping the flag changes nothing about what convert() produces.
+    #
+    # The real bug behind "Depth of output is not a multiple of the number of groups":
+    # PyTorch's ONNX export represents the padding before features.1's Conv as a
+    # dynamic Pad op (its `pads` argument computed via Slice/Transpose/Reshape/Cast on
+    # Constants, not a plain attribute). onnx2tf's NCHW->NHWC axis remapping mishandles
+    # that *dynamic* Pad and applies the padding to the channel axis instead of the
+    # row axis, turning a 1-channel input into 3 -- which then collides with the
+    # unrelated Conv's `group=1` in a way that surfaces as a bogus "groups" mismatch.
+    # onnxsim.simplify() constant-folds that whole Slice/Transpose/Reshape/Cast chain
+    # into Conv's own native `pads` attribute (confirmed: no separate Pad node
+    # survives, Conv gets pads=[1,0,1,0] directly) -- a plain static Conv attribute is
+    # a code path onnx2tf handles correctly, so letting onnx2tf run onnxsim (its
+    # default; it silently no-ops if onnxsim isn't installed, which is what was
+    # happening here) removes the bug instead of working around its symptom.
     onnx2tf.convert(
         input_onnx_file_path=str(onnx_path),
         output_folder_path=str(sm),
         output_signaturedefs=True,
-        flatbuffer_direct_output_saved_model=True,
         copy_onnx_input_output_names_to_tflite=True,
         non_verbose=True,
     )

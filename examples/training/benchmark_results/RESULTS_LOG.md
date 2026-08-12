@@ -192,3 +192,21 @@ Most recent runs are appended below.
 | Model | Test_EM_C7_R5 | Test_EM_C7_R5_02 | Test_EM_C7_R5_03 | Overall | Params | Size (KB) | MACs | Lat (ms) |
 |---|---|---|---|---|---|---|---|---|
 | EmagerCNNRingStridedPTQ | 98.5% ± 1.3% | 91.8% ± 4.5% | 90.5% ± 7.9% | 93.6% | 44,359 | 58.4 | 152.5K | 2.19 |
+
+## 2026-08-12 17:04:50
+
+- **Datasets** (leave-one-out across reps):
+    - `EM_3Sessions/S_0` — 7 classes, 5 reps · ~5,974 datapoints/rep (~3.0s @ 2000 Hz)
+    - `EM_3Sessions/S_1` — 7 classes, 5 reps · ~6,103 datapoints/rep (~3.1s @ 2000 Hz)
+    - `EM_3Sessions/S_2` — 7 classes, 5 reps · ~6,101 datapoints/rep (~3.1s @ 2000 Hz)
+- **Seeds:** [42, 123, 456]
+- **Epochs:** 10  |  **Window:** 200/10  |  **Sampling:** 2000  |  **Batch:** 64/256
+- **Fits:** 90 total  ·  14.1s avg/fit (incl. data load)
+- **Config file:** (constants in script)
+- **Host:** cpu · torch 2.12.1+cpu · py 3.12.10 · Windows-11-10.0.26200-SP0
+- **Elapsed:** 21m 7s
+
+| Model | EM_3Sessions/S_0 | EM_3Sessions/S_1 | EM_3Sessions/S_2 | Overall | Params | Size (KB) | MACs | Lat (ms) |
+|---|---|---|---|---|---|---|---|---|
+| EmagerCNNProtoRingStridedPTQ | 99.1% ± 0.6% | 97.9% ± 1.0% | 95.9% ± 4.9% | 97.6% | 43,904 | 58.1 | 152.1K | 0.53 |
+| EmagerCNNRingStridedPTQ | 97.9% ± 1.9% | 92.3% ± 3.5% | 89.1% ± 8.0% | 93.1% | 44,359 | 58.4 | 152.5K | 0.53 |

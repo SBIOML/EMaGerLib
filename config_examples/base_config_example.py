@@ -22,6 +22,14 @@ FILTER = False
 VIRTUAL = False
 PORT = None
 
+# ===== MCU link (emager mcu-predict) ===== #
+# The PC forwards the base station's raw stream to the MCU untouched and displays
+# the predictions it sends back. See docs/MCU_PROTOCOL.md.
+MCU_PORT = None            # Serial port of the MCU, e.g. "COM7" / "/dev/ttyACM0"
+MCU_BAUD = 2000000         # Nominal over USB CDC; a real UART must sustain ~195 kB/s
+BASESTATION_PORT = None    # None = auto-detect by VID/PID, as libemg does
+BASESTATION_BAUD = 3000000 # Matches libemg's Emager3 default
+
 # ===== Training parameters ===== #
 TRAIN_REPS = [0,1,2]
 TEST_REPS = [1]

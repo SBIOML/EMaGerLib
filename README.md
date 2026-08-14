@@ -286,6 +286,7 @@ For backward compatibility, all commands are also available with their full name
 | `emager screen-training` | Screen-guided data collection |
 | `emager train-cnn` | Train CNN model |
 | `emager realtime-predict` | Real-time gesture prediction |
+| `emager mcu-predict` | Relay EMG data to a microcontroller and display its predictions |
 | `emager realtime-control` | Real-time prosthetic control |
 | `emager live-64ch` | Live 64-channel EMG visualization |
 | `emager test-hand` | Test hand control interface |
@@ -374,6 +375,7 @@ Comprehensive documentation is available in the `docs/` directory:
 - [CLI Guide](docs/CLI.md) - Command-line arguments and usage examples
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Installation, hardware, development, and solutions to common problems
 - [Model Variants](emagerlib/models/models.md) - Architecture, INT8 quantization, and few-shot prototypical model variants (experimental), with benchmark results
+- [MCU Protocol](docs/MCU_PROTOCOL.md) - Wire format for the microcontroller's prediction stream, for firmware implementers
 
 ## Development Workflows
 

@@ -35,7 +35,10 @@ COMMANDS: Dict[str, Tuple[str, str]] = {
     "realtime-control-teensy": ("examples.realtime.realtime_control_teensy", "main"),
     # "realtime-control-threads": ("examples.realtime.realtime_control_threads", "main"),
     "realtime-predict": ("examples.realtime.realtime_prediction", "main"),
-    
+
+    # MCU
+    "mcu-predict": ("examples.mcu.mcu_predict", "main"),
+
     # Training
     "train-cnn": ("examples.training.train_cnn", "main"),
     "train-cnn-big": ("examples.training.train_cnn_big", "main"),
@@ -74,7 +77,10 @@ Available commands:
     realtime-control-teensy  Real-time control via Teensy bridge
     realtime-control-threads Real-time threaded shared-memory control
     realtime-predict   Real-time gesture prediction
-  
+
+  Microcontroller:
+    mcu-predict        Relay EMG data to an MCU and display its predictions
+
   Training:
     train-cnn          Train CNN model on EMG data
     train-cnn-big      Train larger CNN model on EMG data

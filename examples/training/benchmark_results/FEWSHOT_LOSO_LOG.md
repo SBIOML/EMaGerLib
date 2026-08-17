@@ -111,3 +111,41 @@ Most recent runs are appended below.
 | Proto-RingStridedPTQSupportCalib (k-shot) | +nan% | +nan% | +nan% | +nan% | +nan% | +nan% | +nan% | +nan% | +nan% |
 | Proto-RingStridedQAT (k-shot) | +1.8% | +1.2% | +0.7% | +0.6% | +0.6% | +1.0% | +1.2% | +1.2% | +1.1% |
 
+## 2026-08-13 04:42:38  — Few-shot LOSO
+
+- **Sessions (leave-one-out):** EM_3Sessions/S_0, EM_3Sessions/S_1, EM_3Sessions/S_2
+- **Models:** EmagerCNNProtoEpisodic, EmagerCNNProtoCE, EmagerCNNProtoRingStridedPTQ
+- **Seeds:** [42, 123, 456]  |  **k (calibration reps/class):** [1, 2, 3, 4]  (1 shot = 1 repetition; 1 rep held out as query)
+- **Fine-tune:** 30 epochs @ lr 0.001 (full model)
+- **Offline:** 10 epochs  |  Window 200/10  |  Sampling 2000  |  Batch 64/256
+- **Folds:** 3 sessions × 3 seeds = 9 evals/method
+- **Host:** cpu · torch 2.12.1+cpu · py 3.12.10 · Windows-11-10.0.26200-SP0
+- **Elapsed:** 6h 39m 19s
+
+**Floors (no calibration, k-independent)**
+
+| Method | Acc |
+|---|---|
+| CNN (zero-shot) | 18.7% ± 11.5% |
+| Proto-Episodic (generic) | 22.5% ± 12.8% |
+| Proto-CE (generic) | 19.2% ± 7.5% |
+| Proto-RingStridedPTQ (generic) | 24.8% ± 5.8% |
+
+**Calibrated (query accuracy vs k calibration reps/class)**
+
+| Method | k=1 rep | k=2 rep | k=3 rep | k=4 rep |
+|---|---|---|---|---|
+| CNN + fine-tune | 83.2% ± 9.7% | 90.2% ± 8.7% | 90.1% ± 9.2% | 92.7% ± 7.1% |
+| Proto-Episodic (k-shot) | 60.7% ± 11.6% | 66.7% ± 14.4% | 68.3% ± 14.3% | 69.2% ± 13.4% |
+| Proto-CE (k-shot) | 63.1% ± 11.2% | 67.8% ± 11.5% | 68.9% ± 10.7% | 67.0% ± 10.9% |
+| Proto-RingStridedPTQ (k-shot) | 62.1% ± 9.9% | 66.7% ± 12.4% | 68.6% ± 15.4% | 69.3% ± 14.3% |
+
+**Calibration lift (Δ accuracy vs each method's own floor, mean)**
+
+| Method (vs floor) | k=1 rep | k=2 rep | k=3 rep | k=4 rep |
+|---|---|---|---|---|
+| CNN + fine-tune | +64.5% | +71.5% | +71.4% | +74.0% |
+| Proto-Episodic (k-shot) | +38.3% | +44.2% | +45.8% | +46.7% |
+| Proto-CE (k-shot) | +43.9% | +48.6% | +49.7% | +47.8% |
+| Proto-RingStridedPTQ (k-shot) | +37.3% | +41.9% | +43.7% | +44.5% |
+

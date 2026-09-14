@@ -13,3 +13,5 @@ PyOpenGL #optimize visualization
 ability-hand
 bleak
 PyYAML
+imufusion
+trimesh

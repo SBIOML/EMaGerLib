@@ -28,6 +28,8 @@ dependencies = [
     "ability-hand",
     "bleak",     # BLE communication (ble_client)
     "PyYAML",    # YAML config loading/saving
+    "imufusion",
+    "trimesh",
 ]
 
 # To switch the libemg source from the default fork, run a manual two-step

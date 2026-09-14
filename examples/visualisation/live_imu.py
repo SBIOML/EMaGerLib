@@ -1,463 +1,294 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Live 6-axis IMU plotting using PyQtGraph, with data coming from LibEMG shared memory
+Live 6-axis IMU in 3D space, with data coming from LibEMG shared memory
 via your EmagerV3Streamer (buffer_write via vstack prepend).
 
-This version:
-- shows proper units on screen
-- uses dynamic Y autoscaling so each plot fills the available space better
-- keeps accelerometer and gyroscope displays clearer and easier to read
-
-IMPORTANT:
-- Your streamer writes NEW data by PREPENDING (vstack) into the shared buffer.
-- Therefore the shared memory array is NOT a classical ring. The newest rows are at the TOP.
-- Counts (tag_count) still increase by number of rows written.
-- This consumer uses count deltas to know how many NEW rows arrived, then simply takes the TOP new_rows.
-
-Requires:
-  pip install numpy pyqt5 pyqtgraph
-  + your libemg environment
-  + your streamer launcher function (emagerv3_streamer) that starts the process and returns (streamer, smi)
 """
 
 import time
-import argparse
 import numpy as np
-
-# Import libemg (and its transitive torch dep, since libemg PR #130) BEFORE any
-# Qt binding. On Windows, loading torch after a Qt binding makes c10.dll's DLL
-# loader pick up Qt's shipped runtimes from PATH, producing WinError 1114.
-from libemg.data_handler import OnlineDataHandler
-from libemg.streamers import emagerv3_streamer
-
-from PyQt5 import QtWidgets, QtCore
-import pyqtgraph as pg
+from pathlib import Path
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QMainWindow
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
+from PyQt6.QtGui import QMatrix4x4
+import trimesh
+import pyqtgraph.opengl as gl
+from libemg.shared_memory_manager import SharedMemoryManager
+import time
+from imufusion import Ahrs, AhrsSettings, CONVENTION_NWU
 
 
 # -----------------------------
 # Shared memory modality names
 # -----------------------------
-MOD_EMG = "emg"
-MOD_EMG_COUNT = "emg_count"
-
 MOD_IMU = "imu"
 MOD_IMU_COUNT = "imu_count"
 
-MOD_SAMPLE_ID = "sample_id"
-MOD_SAMPLE_ID_COUNT = "sample_id_count"
+
+def load_stl(path):
+    mesh = trimesh.load_mesh(path)
+    mesh.fix_normals()
+    vertices = np.asarray(mesh.vertices)
+    faces = np.asarray(mesh.faces)
+
+    mesh_data = gl.MeshData(
+        vertexes=vertices,
+        faces=faces
+    )
+
+    return gl.GLMeshItem(
+        meshdata=mesh_data,
+        smooth=False,
+        drawFaces=True,
+        drawEdges=False,
+        shader='normalColor',
+    )
+
+class GUI(QWidget): 
+    def __init__(self, smi): 
+        self.app = QApplication([]) 
+        self.smi = smi
+
+        super().__init__() 
+
+        lay = QVBoxLayout(self)
+
+        self.setWindowTitle("IMU Viewer")
+
+        self.gizmo = IMUGizmo()
+        lay.addWidget(self.gizmo)
+
+        self.calibrating = False
+
+        self.calibrate_button = QPushButton("Calibrate")
+        self.calibrate_button.clicked.connect(self.start_calibration)
+        lay.addWidget(self.calibrate_button)
+
+        self.calibration_timer = QTimer(self)
+        self.calibration_timer.setSingleShot(True)
+        self.calibration_timer.timeout.connect(self.end_calibration)
+
+        self.worker = GestureWorker(self)
+        self.worker.newImuData.connect(self.on_new_imu_data)
+
+        self.ahrs = self.create_ahrs()
+
+        self.smm = SharedMemoryManager()
+        for item in self.smi:
+            if item[0] in [MOD_IMU, MOD_IMU_COUNT]:
+                self.smm.create_variable(*item)
+
+    def start_calibration(self):
+        self.calibrating = True
+        self.calibrate_button.setEnabled(False)
+        self.calibrate_button.setText("Calibrating...")
+        self.ahrs.restart()
+
+        # Hold the current displayed position for 3 seconds
+        self.calibration_timer.start(3000)
 
 
-# -----------------------------
-# Rolling buffer for plotting
-# -----------------------------
-class RollingBuffer:
-    def __init__(self, channels=6, width=4096, dtype=np.float32):
-        self.channels = int(channels)
-        self.width = int(width)
-        self.buf = np.zeros((self.channels, self.width), dtype=dtype)
-        self.write_idx = 0
-        self.lock = QtCore.QMutex()
-        self.valid = False
+    def end_calibration(self):
+        self.calibrating = False
+        self.calibrate_button.setEnabled(True)
+        self.calibrate_button.setText("Calibrate")
 
-    def append_block(self, block_ch_time: np.ndarray):
-        """Append a (channels x N) block. If N > width, keep only the newest width samples."""
-        if block_ch_time is None:
-            return
-        if block_ch_time.ndim != 2 or block_ch_time.shape[0] != self.channels:
-            return
+    def create_ahrs(self):
+        ahrs = Ahrs()
 
-        cols = int(block_ch_time.shape[1])
-        if cols <= 0:
-            return
-
-        if cols > self.width:
-            block_ch_time = block_ch_time[:, -self.width:]
-            cols = self.width
-
-        self.lock.lock()
-        try:
-            first = min(cols, self.width - self.write_idx)
-            second = cols - first
-
-            self.buf[:, self.write_idx:self.write_idx + first] = block_ch_time[:, :first]
-
-            if second > 0:
-                self.buf[:, :second] = block_ch_time[:, first:first + second]
-
-            self.write_idx = (self.write_idx + cols) % self.width
-            self.valid = True
-        finally:
-            self.lock.unlock()
-
-    def chronological_view_copy(self):
-        """Return COPY of buffer in chronological order: shape (channels x width)."""
-        self.lock.lock()
-        try:
-            if not self.valid:
-                return None
-            if self.write_idx == 0:
-                return self.buf.copy()
-            return np.concatenate(
-                (self.buf[:, self.write_idx:], self.buf[:, :self.write_idx]),
-                axis=1
-            ).copy()
-        finally:
-            self.lock.unlock()
-
-
-# -----------------------------
-# GUI for 6 IMU axes
-# -----------------------------
-class LiveIMU6(QtWidgets.QMainWindow):
-    def __init__(self, width, fps=30.0, title="Live 6-axis IMU scope",
-                 accel_unit="mg", gyro_unit="raw", auto_scale=True):
-        super().__init__()
-        self.fps = float(fps)
-        self.setWindowTitle(title)
-        self.resize(1500, 950)
-
-        self.accel_unit = accel_unit
-        self.gyro_unit = gyro_unit
-        self.auto_scale = auto_scale
-
-        # Minimum half-ranges to avoid over-zooming when signal is nearly flat
-        self.min_half_ranges = [300, 300, 300, 200, 200, 200]
-
-        # Initial Y ranges
-        self.current_y_ranges = [
-            [-1000, 1000], [-1000, 1000], [-1000, 1000],
-            [-500, 500], [-500, 500], [-500, 500]
-        ]
-
-        pg.setConfigOptions(
-            antialias=False,
-            useOpenGL=True,
-            enableExperimental=True
+        ahrs.set_settings(
+            AhrsSettings(
+                sample_rate=25,
+                convention=CONVENTION_NWU,
+                gain=0.5,
+                gyroscope_range=2000,
+                acceleration_rejection=10,
+                magnetic_rejection=0,
+                rejection_timeout=5 * 2000,
+            )
         )
 
-        cw = pg.GraphicsLayoutWidget()
-        self.setCentralWidget(cw)
-
-        self.plots = []
-        self.curves = []
-        self.x = np.arange(width, dtype=float)
-
-        # ch, row, col, title, color, unit
-        plot_defs = [
-            (0, 0, 0, "Accelerometer X", 'r', self.accel_unit),
-            (1, 1, 0, "Accelerometer Y", 'g', self.accel_unit),
-            (2, 2, 0, "Accelerometer Z", 'b', self.accel_unit),
-            (3, 0, 1, "Gyroscope X", 'r', self.gyro_unit),
-            (4, 1, 1, "Gyroscope Y", 'g', self.gyro_unit),
-            (5, 2, 1, "Gyroscope Z", 'b', self.gyro_unit),
-        ]
-
-        for ch, r, c, title_txt, color, unit in plot_defs:
-            p = cw.addPlot(row=r, col=c)
-            p.setTitle(title_txt)
-            p.showGrid(x=False, y=True, alpha=0.2)
-            p.setMenuEnabled(False)
-            p.setMouseEnabled(x=False, y=False)
-            p.hideButtons()
-            p.setDownsampling(mode='peak', auto=True)
-            p.setClipToView(True)
-            p.setLabel('left', unit, **{'font-size': '11pt'})
-            p.setLabel('bottom', '', **{'font-size': '8pt'})
-            p.getAxis('bottom').setStyle(showValues=False)
-            p.getAxis('bottom').setTicks([])
-            p.setXRange(0, width - 1, padding=0)
-
-            vb = p.getViewBox()
-            vb.setDefaultPadding(0.0)
-
-            curve = p.plot(pen=pg.mkPen(color, width=2))
-            self.plots.append(p)
-            self.curves.append(curve)
-
-    def _update_y_range(self, ch, y):
-        """Auto-scale one channel with smoothing and margin."""
-        y = np.asarray(y)
-        if y.size == 0:
-            return
-
-        finite = np.isfinite(y)
-        if not np.any(finite):
-            return
-
-        yv = y[finite]
-        ymin = float(np.min(yv))
-        ymax = float(np.max(yv))
-
-        center = 0.5 * (ymin + ymax)
-        half = 0.5 * (ymax - ymin)
-
-        # Add 15% margin
-        half *= 1.15
-
-        # Prevent absurd zoom when nearly flat
-        half = max(half, self.min_half_ranges[ch])
-
-        target_low = center - half
-        target_high = center + half
-
-        old_low, old_high = self.current_y_ranges[ch]
-
-        # Smoothing so scale does not jump too aggressively
-        alpha = 0.18
-        new_low = (1 - alpha) * old_low + alpha * target_low
-        new_high = (1 - alpha) * old_high + alpha * target_high
-
-        self.current_y_ranges[ch] = [new_low, new_high]
-        self.plots[ch].setYRange(new_low, new_high, padding=0)
-
-    @QtCore.pyqtSlot(object)
-    def update_from_block(self, view):
-        """Receive (6 x width) NumPy array and draw it."""
-        if view is None:
-            return
-
-        for ch in range(6):
-            y = view[ch]
-            self.curves[ch].setData(self.x, y, _callSync='off')
-            if self.auto_scale:
-                self._update_y_range(ch, y)
+        return ahrs
 
 
-# -----------------------------
-# Consumer thread for IMU
-# -----------------------------
-class SharedMemoryConsumerVStackIMU(QtCore.QThread):
-    """
-    Pulls IMU data from OnlineDataHandler shared memory and appends new samples to RollingBuffer.
-
-    Adapted to vstack-prepend writer behavior:
-      - writer prepends new rows to the TOP via vstack((new[::-1], buffer))
-      - newest data is therefore at buffer[0:new_rows] in reverse order
-    """
-    status = QtCore.pyqtSignal(str)
-
-    def __init__(self, odh: OnlineDataHandler, rbuf: RollingBuffer, poll_hz=200.0,
-                 accel_to_g=False, parent=None):
-        super().__init__(parent)
-        self.odh = odh
-        self.rbuf = rbuf
-        self.poll_period = 1.0 / max(1.0, float(poll_hz))
-        self._stop = False
-
-        self.last_imu_count = 0
-        self.last_sample_id_count = 0
-        self.last_sample_id = None
-
-        self.accel_to_g = accel_to_g
-
-    @staticmethod
-    def _take_new_from_vstack_buffer(buf: np.ndarray, new_rows: int) -> np.ndarray:
-        """
-        In the vstack-prepend buffer:
-          buf[0:new_rows] are the newly written rows, but in reverse order.
-
-        Return them in chronological order (oldest -> newest).
-        """
-        if new_rows <= 0:
-            return np.zeros((0, buf.shape[1]), dtype=buf.dtype)
-
-        new_rows = min(int(new_rows), int(buf.shape[0]))
-        chunk_rev = buf[:new_rows, :]      # newest -> oldest
-        chunk = chunk_rev[::-1, :].copy()  # oldest -> newest
-        return chunk
+    def on_new_imu_data(self, imu):
+        roll, pitch, yaw = imu
+        self.gizmo.setRotationMatrix(roll, pitch, yaw)
 
     def run(self):
-        t_next = time.monotonic()
+        self.worker.start()
+        self.resize(800, 600)
+        ## Center on screen
+        primaryScreen = QApplication.primaryScreen()
+        assert primaryScreen is not None, "No primary screen found."
 
-        while not self._stop:
-            now = time.monotonic()
-            if now < t_next:
-                time.sleep(min(0.002, t_next - now))
-                continue
+        screen = primaryScreen.availableGeometry()
+        frame = self.frameGeometry()
+        frame.moveCenter(screen.center())
+        self.move(frame.topLeft())
 
-            try:
-                vals, count = self.odh.get_data()
-            except Exception:
-                time.sleep(0.01)
-                t_next = time.monotonic() + self.poll_period
-                continue
+        ## Move to front
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.app.exec()
 
-            # --- IMU ---
-            if MOD_IMU in vals and MOD_IMU in count:
-                total_imu = int(count[MOD_IMU][0][0])
-                new_imu = total_imu - self.last_imu_count
+    def closeEvent(self, e):
+        self.worker.stop()
+        super().closeEvent(e)
 
-                if new_imu > 0:
-                    imu_buf = vals[MOD_IMU]  # expected shape: (H, 6)
-                    chunk = self._take_new_from_vstack_buffer(imu_buf, new_imu)  # (N,6)
-
-                    # Swap the two bytes of every int16 IMU value
-                    chunk = np.asarray(chunk, dtype=np.int16).byteswap()
-
-                    block_ch_time = chunk.T.astype(np.float32, copy=False)  # (6,N)
-
-                    # Optional: convert accelerometer from mg to g
-                    if self.accel_to_g:
-                        block_ch_time[0:3, :] /= 1000.0
-
-                    self.rbuf.append_block(block_ch_time)
-                    self.last_imu_count += int(chunk.shape[0])
-
-                    if chunk.shape[0] > 0:
-                        last_imu = block_ch_time[:, -1]
-                        msg = (
-                            f"sample_id={self.last_sample_id} | "
-                            f"acc=[{last_imu[0]:.2f}, {last_imu[1]:.2f}, {last_imu[2]:.2f}] | "
-                            f"gyro=[{last_imu[3]:.2f}, {last_imu[4]:.2f}, {last_imu[5]:.2f}]"
-                        )
-                        self.status.emit(msg)
-
-            # --- sample_id (optional) ---
-            if MOD_SAMPLE_ID in vals and MOD_SAMPLE_ID in count:
-                total_sid = int(count[MOD_SAMPLE_ID][0][0])
-                new_sid = total_sid - self.last_sample_id_count
-
-                if new_sid > 0:
-                    sid_buf = vals[MOD_SAMPLE_ID]  # (H,1)
-                    sid_chunk = self._take_new_from_vstack_buffer(sid_buf, new_sid)
-
-                    if sid_chunk.shape[0] > 0:
-                        self.last_sample_id = int(sid_chunk[-1, 0])
-
-                    self.last_sample_id_count += int(sid_chunk.shape[0])
-
-            t_next = time.monotonic() + self.poll_period
-
-    def stop(self):
-        self._stop = True
-
-
-# -----------------------------
-# Plot update worker
-# -----------------------------
-class UpdateWorker(QtCore.QThread):
-    newBlock = QtCore.pyqtSignal(object)
-
-    def __init__(self, rbuf: RollingBuffer, fps=30.0, parent=None):
-        super().__init__(parent)
-        self.rbuf = rbuf
-        self.period = 1.0 / max(1.0, float(fps))
-        self._stop = False
+class GestureWorker(QThread):
+    newImuData = pyqtSignal(object)
+    def __init__(self, gui):
+        super().__init__()
+        self.running=True
+        self.gui=gui
+        self.previousTime = time.perf_counter()
 
     def run(self):
-        next_t = time.monotonic()
-        while not self._stop:
-            now = time.monotonic()
-            if now < next_t:
-                time.sleep(min(0.005, next_t - now))
+        old_count = self.gui.smm.get_variable(MOD_IMU_COUNT)[0, 0]
+        while self.running:
+            new_count = self.gui.smm.get_variable(MOD_IMU_COUNT)[0, 0]
+            if new_count == old_count:
                 continue
+            old_count = new_count
 
-            view = self.rbuf.chronological_view_copy()
-            self.newBlock.emit(view)
-            next_t = time.monotonic() + self.period
+            imuData = self.gui.smm.get_variable(MOD_IMU)[0, :]
+            roll, pitch, yaw = self.convertImuDataToAngles(imuData)
+            
+            self.newImuData.emit((roll, pitch, yaw))
 
+    def convertImuDataToAngles(self, imuData):
+        from scipy.spatial.transform import Rotation as R
+        # Swap the two bytes of every int16 IMU value
+        imuData = np.asarray(imuData, dtype=np.int16).byteswap()
+
+        acceleration = imuData[0:3] / 1000.0  # Convert from mg to g
+        gyro = imuData[3:6] 
+        self.gui.ahrs.update_no_magnetometer(gyro, acceleration)
+
+        q = self.gui.ahrs.get_quaternion()
+        euler = R.from_quat(q).as_euler('xyz', degrees=False)
+
+        roll = euler[0]
+        pitch = euler[1]
+        yaw = euler[2]
+
+        return roll, pitch, yaw
+         
     def stop(self):
-        self._stop = True
+        self.running=False
+        self.wait()
+
+class IMUGizmo(gl.GLViewWidget):
+    def __init__(self):
+        super().__init__()
+
+        label_x = gl.GLTextItem(pos=(2.2, 0, 0), text='X', color=(255, 60, 60, 255))
+        label_y = gl.GLTextItem(pos=(0, 2.2, 0), text='Y', color=(60, 255, 60, 255))
+        label_z = gl.GLTextItem(pos=(0, 0, 2.2), text='Z', color=(60, 60, 255, 255))
+        self.addItem(label_x)
+        self.addItem(label_y)
+        self.addItem(label_z) 
+
+        self.setCameraPosition(distance=6, elevation=0, azimuth=180)
+        a = gl.GLAxisItem(); a.setSize(2, 2, 2); self.addItem(a)
 
 
-# -----------------------------
-# Main
-# -----------------------------
-def main():
-    ap = argparse.ArgumentParser(
-        description="PyQtGraph live 6-axis IMU viewer using LibEMG shared memory (vstack-prepend buffer streamer)."
-    )
-    ap.add_argument("--duration", type=float, default=0.0, help="Stop after N seconds (0 = run forever)")
-    ap.add_argument("--plot-window", type=int, default=200, help="Samples per axis kept on screen")
-    ap.add_argument("--plot-fps", type=float, default=20.0, help="Plot update rate (Hz)")
-    ap.add_argument("--poll-hz", type=float, default=300.0, help="Shared-memory poll rate (Hz)")
-    ap.add_argument("--baud", type=int, default=3000000, help="Baud rate passed to emagerv3_streamer")
+        base_path = Path(__file__).parent
+        stl_path = base_path / "CAD files"/"EMaGer V3 CAD.stl"
+        self.cylinder = load_stl(stl_path)
 
-    # Units / scaling options
-    ap.add_argument("--accel-unit", type=str, default="mg", choices=["mg", "g"],
-                    help="Display accelerometer as mg or g")
-    ap.add_argument("--gyro-unit", type=str, default="raw",
-                    help="Gyroscope unit label to display (e.g. raw, dps, mdps)")
+        self.cylinder.setColor((1.0, 0.4, 0.4, 1))
+        self.cylinder.scale(0.01, 0.01, 0.01)
+        self.cylinder.setGLOptions('opaque')
 
-    args = ap.parse_args()
+        self.addItem(self.cylinder)
 
-    accel_to_g = (args.accel_unit == "g")
+        self.create_axes()
 
-    # 1) Start streamer
-    streamer, smi = emagerv3_streamer(baud_rate=args.baud)
-    print("[INFO] Streamer started.")
-    print(f"[INFO] shared_memory_items tags: {[x[0] for x in smi]}")
 
-    # 2) Create OnlineDataHandler
-    odh = OnlineDataHandler(shared_memory_items=smi)
+    def setRotationMatrix(self, roll, pitch, yaw):
+        # update the transform of the cylinder based on roll, pitch, yaw 
+        transform = QMatrix4x4()
+        
+        transform.rotate(180, 0, 0, 1)
+        # I don't know why roll and yaw are inverted
+        # Roll and yaw are negative because of the flipped axes (180 degrees rotation around z)
+        # This is due to the EMaGer's IMU orientation
+        transform.rotate(-roll * 180 / np.pi, 0, 0, 1)
+        transform.rotate(pitch * 180 / np.pi, 0, 1, 0)
+        transform.rotate(-yaw * 180 / np.pi, 1, 0, 0)
+        self.cylinder.setTransform(transform)
+        self.cylinder.scale(0.01, 0.01, 0.01)
+        self.update_axes()
 
-    # 3) Qt app
-    app = QtWidgets.QApplication([])
+    def create_axes(self):
+        # create axes attached to the cylinder
+        self.axis_x = gl.GLLinePlotItem(
+            pos=np.array([[0,0,0], [1,0,0]]),
+            width=3,
+            antialias=True
+        )
+        self.axis_y = gl.GLLinePlotItem(
+            pos=np.array([[0,0,0], [0,1,0]]),
+            width=3,
+            antialias=True
+        )
+        self.axis_z = gl.GLLinePlotItem(
+            pos=np.array([[0,0,0], [0,0,1]]),
+            width=3,
+            antialias=True
+        )
 
-    # 4) Rolling buffer, window, workers
-    rbuf = RollingBuffer(channels=6, width=args.plot_window, dtype=np.float32)
+        self.addItem(self.axis_x)
+        self.addItem(self.axis_y)
+        self.addItem(self.axis_z)
 
-    win = LiveIMU6(
-        width=args.plot_window,
-        fps=args.plot_fps,
-        title="Live 6-axis IMU scope [EMaGer v3 streamer | vstack buffer]",
-        accel_unit=args.accel_unit,
-        gyro_unit=args.gyro_unit,
-        auto_scale=True
-    )
-    win.show()
+        # Labels for the body-frame axes (positions updated every frame)
+        self.label_body_x = gl.GLTextItem(pos=(1, 0, 0), text='x', color=(255, 60, 60, 255))
+        self.label_body_y = gl.GLTextItem(pos=(0, 1, 0), text='y', color=(60, 255, 60, 255))
+        self.label_body_z = gl.GLTextItem(pos=(0, 0, 1), text='z', color=(60, 60, 255, 255))
 
-    updater = UpdateWorker(rbuf=rbuf, fps=args.plot_fps)
-    updater.newBlock.connect(win.update_from_block, QtCore.Qt.QueuedConnection)
-    updater.start()
+        self.addItem(self.label_body_x)
+        self.addItem(self.label_body_y)
+        self.addItem(self.label_body_z)
 
-    consumer = SharedMemoryConsumerVStackIMU(
-        odh=odh,
-        rbuf=rbuf,
-        poll_hz=args.poll_hz,
-        accel_to_g=accel_to_g
-    )
-    consumer.status.connect(lambda s: win.setWindowTitle(f"Live 6-axis IMU | {s}"))
-    consumer.start()
+    def update_axes(self):
+        # update the axes based on the current transform of the cylinder
+        T = self.cylinder.transform()
 
-    # Optional duration stop
-    stop_timer = None
-    if args.duration and args.duration > 0:
-        def stop_after():
-            win.close()
+        R = np.array([
+            [T.row(0).x(), T.row(0).y(), T.row(0).z()],
+            [T.row(1).x(), T.row(1).y(), T.row(1).z()],
+            [T.row(2).x(), T.row(2).y(), T.row(2).z()]
+        ])
 
-        stop_timer = QtCore.QTimer()
-        stop_timer.setSingleShot(True)
-        stop_timer.timeout.connect(stop_after)
-        stop_timer.start(int(args.duration * 1000))
+        origin = np.array([0, 0, 0])
 
-    # 5) Run + cleanup
-    ret = 0
-    try:
-        ret = app.exec_()
-    finally:
-        try:
-            consumer.stop()
-            consumer.wait(1000)
-        except Exception:
-            pass
 
-        try:
-            updater.stop()
-            updater.wait(1000)
-        except Exception:
-            pass
+        scale = 100
+        self.axis_x.setData(pos=np.array([origin, R[:, 0] * scale]))
+        self.axis_y.setData(pos=np.array([origin, R[:, 1] * scale]))
+        self.axis_z.setData(pos=np.array([origin, R[:, 2] * scale]))
 
-        try:
-            streamer.stop()
-        except Exception:
-            try:
-                streamer.terminate()
-            except Exception:
-                pass
+        # push labels out a bit past the tip so they don't overlap the lines
+        self.label_body_x.setData(pos=R[:, 0] * scale)
+        self.label_body_y.setData(pos=R[:, 1] * scale)
+        self.label_body_z.setData(pos=R[:, 2] * scale)
 
-    return ret
+
+def main(): 
+    from emagerlib.utils.streamer_utils import get_emager_streamer
+
+    process_emager, smi = get_emager_streamer()
+
+    gui = GUI(smi) 
+    gui.run()
+
+    process_emager.terminate()
 
 
 if __name__ == "__main__":

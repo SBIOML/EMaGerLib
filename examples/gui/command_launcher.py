@@ -61,6 +61,13 @@ QUICK_ACTIONS = [
         "extra_args": "",
     },
     {
+        "label": "Live IMU channels",
+        "kind": "script",
+        "target": PROJECT_ROOT.parent / "visualisation" / "live_imu_channel.py",
+        "use_config": False,
+        "extra_args": "",
+    },
+    {
         "label": "Live IMU",
         "kind": "script",
         "target": PROJECT_ROOT.parent / "visualisation" / "live_imu.py",

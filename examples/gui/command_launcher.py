@@ -75,6 +75,13 @@ QUICK_ACTIONS = [
         "extra_args": "",
     },
     {
+        "label": "Screen Guided Training (Transitions)",
+        "kind": "emager",
+        "target": "screen-training-transitions",
+        "use_config": True,
+        "extra_args": "",
+    },
+    {
         "label": "Train Full CNN",
         "kind": "emager",
         "target": "train-cnn",

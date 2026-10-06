@@ -22,6 +22,7 @@ COMMANDS: Dict[str, Tuple[str, str]] = {
 
     # Data collection
     "screen-training": ("examples.data_collection.screen_guided_trainning", "main"),
+    "screen-training-transitions": ("examples.data_collection.screen_guided_training_transitions", "main"),
     
     # Hand control
     # "test-hand": ("examples.hand_control.test_hand_control", "main"),
@@ -62,6 +63,7 @@ Available commands:
 
   Data Collection:
     screen-training     Screen-guided EMG training data collection
+    screen-training-transitions  Screen-guided data collection with gesture transitions
   
   Hand Control:
     test-hand          Test hand control interface

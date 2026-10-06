@@ -271,6 +271,7 @@ For backward compatibility, all commands are also available with their full name
 | Command | Description |
 |---------|-------------|
 | `emager screen-training` | Screen-guided data collection |
+| `emager screen-training-transitions` | Screen-guided data collection with gesture transitions |
 | `emager train-cnn` | Train CNN model |
 | `emager realtime-predict` | Real-time gesture prediction |
 | `emager realtime-control` | Real-time prosthetic control |

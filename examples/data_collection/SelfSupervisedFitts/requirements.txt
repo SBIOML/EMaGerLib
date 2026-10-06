@@ -1,0 +1,18 @@
+# Tested with Python 3.12 (Windows). Install with:
+#   pip install -r requirements.txt
+#   python install_libemg_patch.py
+#
+# libemg is pinned to the commit of the "transition-sgt" branch this project was
+# developed against. install_libemg_patch.py then adds the EMaGer v3 streamer and
+# the Eulerian-transition SGT changes on top of it (see libemg_patch/).
+libemg @ git+https://github.com/LibEMG/libemg.git@9e6e6b1d87d79d8a0bcbdbbcc0c4c0980e53cc0d
+
+numpy==1.26.4
+scipy==1.17.0
+scikit-learn==1.8.0
+matplotlib==3.10.8
+pyserial==3.5
+dearpygui==2.1.1
+
+torch==2.10.0
+pytorch-metric-learning

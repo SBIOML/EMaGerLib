@@ -1,0 +1,15 @@
+# The root .gitignore ignores config.py; this project's config must be shared
+!config.py
+
+# Recorded sessions and downloaded gesture media (large, shared separately)
+test_transition_sgt*/
+NEW_test_transition_sgt*/
+media-sgt/
+data/
+
+# Training outputs
+trained_models/
+checkpoints/
+images/
+*.pt
+*.pkl

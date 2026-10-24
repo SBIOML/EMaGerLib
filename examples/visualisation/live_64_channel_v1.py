@@ -250,7 +250,7 @@ class RealTimeOscilloscope:
             col = i // num_rows
 
             p = self.win.addPlot(row=row, col=col)
-            p.setYRange(-10000, 10000)
+            p.setYRange(-32768, 32767)
             p.getAxis('left').setStyle(showValues=False)
             p.getAxis('bottom').setStyle(showValues=False)
 

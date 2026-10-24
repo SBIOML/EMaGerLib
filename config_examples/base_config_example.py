@@ -2,16 +2,27 @@ from emagerlib import ROOT_EMAGERLIB
 
 # ===== Paths ===== #
 BASE_PATH = ROOT_EMAGERLIB / "Datasets"
-SESSION = "finetune_mars_25_1"
+SESSION = "felix_limb_position_dataset/subject999/session005" #subject1_noisefloor" #PUCK_F_session1 = francois
 MEDIA_PATH = ROOT_EMAGERLIB / "media-test"
 MODEL_NAME = None # Note: MODEL_NAME will find the last model if set to None but you can hardcode it 
 # MODEL_NAME = "libemg_torch_cnn_D0_974_25-10-20_15h03.pth"
 PRETRAINED_MODEL_PATH = ROOT_EMAGERLIB / "models" / "Felix_5sessions.pth"
 
 # ===== Gesture/classes configuration ===== #
-# hand_close, hand_open, index extension, ok, thumbs up
-CLASSES = [1, 2, 3, 14, 18, 19, 30]
-NUM_REPS = 3
+# 1.  no motion
+# 2.  hand_close
+# 3.  hand_open
+# 14. thumbs up
+# 18. ok
+# 19. rock-on
+# 30. index extension
+# 26. index pinch
+# 4-5 wrist flex et ext
+# 8 chuck grip
+# CLASSES = [1, 2, 3, 14, 18, 19, 30]
+# CLASSES = [1,2,14,26,30,4,5,8]
+CLASSES = [1,2,3,4,5,6,7,8,14,26,30]
+NUM_REPS = 20
 REP_TIME = 3
 REST_TIME = 1
 
@@ -24,7 +35,7 @@ PORT = None
 
 # ===== Training parameters ===== #
 TRAIN_REPS = [0,1,2]
-TEST_REPS = [1]
+TEST_REPS = [2]
 WINDOW_SIZE = 200
 WINDOW_INCREMENT = 10
 EPOCH = 10

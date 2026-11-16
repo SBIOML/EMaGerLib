@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - Unreleased
+
+### Changed (breaking for IMU data)
+- libemg fork is now pinned to the `emagerlib-v1.3.0` tag instead of the `emager-v3` branch (`pyproject.toml`, `requirements.txt`, `README.md`), so EMaGerLib and the streamer are always updated together.
+- The fork's EMaGer v3 streamer now decodes IMU samples as little-endian int16 (it used big-endian `>i2`, which byte-swapped every IMU value). EMG is unchanged.
+
+### Fixed
+- `live_imu.py` no longer calls `.byteswap()` on IMU data (that compensated for the old streamer bug and would now corrupt correct values).
+
+### Migration
+- Update with `git pull`, then reinstall libemg (pip does not update a git dependency on its own):
+  `pip uninstall libemg -y` then `pip install -e .`
+- Remove any `.byteswap()` / `>i2` you added in your own code to fix IMU values.
+- IMU files recorded before 1.3.0 (`*_imu.csv`) are byte-swapped. Fix them when loading:
+  `np.loadtxt(path, delimiter=",", ndmin=2).astype(np.int16).byteswap()`
+- Check: armband flat and still → accelerometer ≈ ±1000 mg on one axis and ≈ 0 on the other two.
+
 ## [1.2.1] - 2026-05-18
 
 ### Added

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.0] - Unreleased
+## [1.3.0] - 2026-11-16
 
 ### Changed (breaking for IMU data)
 - libemg fork is now pinned to the `emagerlib-v1.3.0` tag instead of the `emager-v3` branch (`pyproject.toml`, `requirements.txt`, `README.md`), so EMaGerLib and the streamer are always updated together.

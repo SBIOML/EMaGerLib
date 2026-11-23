@@ -92,6 +92,22 @@ class RollingBuffer:
 
 
 # -----------------------------
+# Y scales (name, y_min, y_max): used by the start dialog and by the "Scale" menu of the window
+# -----------------------------
+SCALES = [
+    ("Micro", 1900, 2060),
+    ("Small", 1700, 2300),
+    ("Medium", 1400, 2600),
+    ("Large", 1000, 3000),
+    ("Full", 0, 4092),
+]
+
+
+def scale_label(name, y0, y1):
+    return f"{name} ({y0}–{y1})"
+
+
+# -----------------------------
 # Scale selection dialog
 # -----------------------------
 class ScaleSelectionDialog(QtWidgets.QDialog):
@@ -106,35 +122,21 @@ class ScaleSelectionDialog(QtWidgets.QDialog):
         button_font = QFont()
         button_font.setPointSize(14)
 
-        label = QtWidgets.QLabel("Choose the amplitude scale for all 64 channels:")
+        label = QtWidgets.QLabel("Choose the amplitude scale for all 64 channels\n"
+                                 "(it can be changed later from the \"Scale\" menu):")
         label.setWordWrap(True)
         label.setFont(title_font)
         label.setAlignment(QtCore.Qt.AlignCenter)
 
-        btn_micro = QtWidgets.QPushButton("Micro (1900–2060)")
-        btn_small = QtWidgets.QPushButton("Small (1700–2300)")
-        btn_medium = QtWidgets.QPushButton("Medium (1400–2600)")
-        btn_large = QtWidgets.QPushButton("Large (1000–3000)")
-        btn_full = QtWidgets.QPushButton("Full (0–4092)")
-
-        for b in (btn_micro, btn_small, btn_medium, btn_large, btn_full):
-            b.setFont(button_font)
-            b.setMinimumHeight(40)
-
-        btn_micro.clicked.connect(lambda: self._choose(1900, 2060))
-        btn_small.clicked.connect(lambda: self._choose(1700, 2300))
-        btn_medium.clicked.connect(lambda: self._choose(1400, 2600))
-        btn_large.clicked.connect(lambda: self._choose(1000, 3000))
-        btn_full.clicked.connect(lambda: self._choose(0, 4092))
-
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(label)
         layout.addSpacing(15)
-        layout.addWidget(btn_micro)
-        layout.addWidget(btn_small)
-        layout.addWidget(btn_medium)
-        layout.addWidget(btn_large)
-        layout.addWidget(btn_full)
+        for name, y0, y1 in SCALES:
+            b = QtWidgets.QPushButton(scale_label(name, y0, y1))
+            b.setFont(button_font)
+            b.setMinimumHeight(40)
+            b.clicked.connect(lambda _checked=False, y0=y0, y1=y1: self._choose(y0, y1))
+            layout.addWidget(b)
 
         self.setLayout(layout)
         self.resize(600, 400)
@@ -189,13 +191,37 @@ class LiveGrid64(QtWidgets.QMainWindow):
                 p.getAxis('bottom').setStyle(showValues=False)
                 p.getAxis('bottom').setTicks([])
                 p.setXRange(0, width - 1, padding=0)
-                p.setYRange(self.y_min, self.y_max)
+                p.setYRange(self.y_min, self.y_max, padding=0)
                 vb = p.getViewBox()
                 vb.setDefaultPadding(0.0)
 
                 curve = p.plot(pen=pg.mkPen('r', width=1))
                 self.plots.append(p)
                 self.curves.append(curve)
+
+        self._build_scale_menu()
+
+    def _build_scale_menu(self):
+        """"Scale" menu in the menu bar (above the plots): its drop-down only covers the signals while open."""
+        menu = self.menuBar().addMenu("&Scale")
+        group = QtWidgets.QActionGroup(self)
+        group.setExclusive(True)
+        self.scale_actions = []
+        for i, (name, y0, y1) in enumerate(SCALES, start=1):
+            action = menu.addAction(scale_label(name, y0, y1))
+            action.setCheckable(True)
+            action.setShortcut(f"Ctrl+{i}")
+            action.setChecked((y0, y1) == (self.y_min, self.y_max))
+            action.triggered.connect(lambda _checked=False, y0=y0, y1=y1: self.set_y_range(y0, y1))
+            group.addAction(action)
+            self.scale_actions.append(action)
+
+    def set_y_range(self, y_min, y_max):
+        """Apply a new amplitude scale to all 64 plots."""
+        self.y_min, self.y_max = float(y_min), float(y_max)
+        for p in self.plots:
+            p.setYRange(self.y_min, self.y_max, padding=0)
+        print(f"[INFO] Using Y-range: {self.y_min} to {self.y_max}")
 
     @QtCore.pyqtSlot(object)
     def update_from_block(self, view):

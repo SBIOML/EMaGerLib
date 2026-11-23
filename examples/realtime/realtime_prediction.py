@@ -4,6 +4,7 @@ from pathlib import Path
 import logging
 import sys
 from emagerlib.config.load_config import load_config
+from emagerlib.utils.notch import notch_filter_dictionary as get_notch_dictionary
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
 from emagerlib.utils.streamer_utils import get_emager_streamer
 
@@ -139,7 +140,7 @@ def predicator(
     odh = OnlineDataHandler(shared_memory_items=smi_emg)
 
     filter = Filter(cfg.SAMPLING)
-    notch_filter_dictionary = {"name": "notch", "cutoff": 60, "bandwidth": 3}
+    notch_filter_dictionary = get_notch_dictionary(cfg)
     filter.install_filters(notch_filter_dictionary)
     bandpass_filter_dictionary = {"name": "bandpass", "cutoff": [20, 450], "order": 4}
     filter.install_filters(bandpass_filter_dictionary)

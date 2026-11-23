@@ -11,6 +11,10 @@ panel. This module provides a drop-in replacement panel, based on the LibEMG
 
 Files are saved as ``C_<class>_R_<rep>_O_<order>_<modality>.csv``.
 
+The configuration window also shows the notch frequency (50 / 60 Hz) and the arm wearing the bracelet
+(left / right), pre-filled from the config and editable in case the config was not updated. The chosen values
+are saved in collection_details.json ("notch_freq", "arm").
+
 Call :func:`use_transition_panel` before creating ``libemg.gui.GUI``.
 """
 import shutil
@@ -24,7 +28,12 @@ import json
 from datetime import datetime
 from libemg._gui._utils import Media, set_texture
 
+import logging
 import threading
+
+from emagerlib.utils.recording_setup import add_setup_fields, read_setup_fields
+
+logger = logging.getLogger(__name__)
 
 
 def use_transition_panel():
@@ -65,7 +74,9 @@ class TransitionDataCollectionPanel:
                  exclude_files=[],
                  gui=None,
                  video_player_width=720,
-                 video_player_height=480):
+                 video_player_height=480,
+                 notch_freq=None,
+                 arm=None):
 
         self.num_reps = num_reps
         self.rep_time = rep_time
@@ -79,13 +90,19 @@ class TransitionDataCollectionPanel:
         self.gui = gui
         self.video_player_width = video_player_width
         self.video_player_height = video_player_height
+        # From the config (None if missing / invalid: the user must then choose in the configuration window)
+        self.config_notch_freq = notch_freq
+        self.config_arm = arm
+        self.notch_freq = notch_freq
+        self.arm = arm
         self.next_preview_width = video_player_width // 5
         self.next_preview_height = video_player_height // 5
 
         self.widget_tags = {
             "configuration": ['__dc_configuration_window', '__dc_num_reps', '__dc_rep_time', '__dc_rest_time',
                               '__dc_media_folder',
-                              '__dc_auto_advance', '__dc_discrete', '__dc_transitions'],
+                              '__dc_auto_advance', '__dc_discrete', '__dc_transitions',
+                              '__dc_notch_freq', '__dc_arm', '__dc_setup_error'],
             "collection": ['__dc_collection_window', '__dc_collection_visual', '__dc_prompt_spacer', '__dc_prompt',
                            '__dc_progress', '__dc_redo_button',
                            '__dc_next_group', '__dc_next_prompt', '__dc_next_visual'],
@@ -208,6 +225,8 @@ class TransitionDataCollectionPanel:
                                        width=button_width, height=button_height)
                         dpg.add_button(label="Visualize", callback=self.visualize_callback,
                                        width=button_width, height=button_height)
+            # Notch frequency and arm: check them, the config may not have been updated
+            add_setup_fields(self.notch_freq, self.arm, width=input_width)
 
         # dpg.set_primary_window("__dc_configuration_window", True)
 
@@ -216,6 +235,8 @@ class TransitionDataCollectionPanel:
             raise ConnectionError(
                 'Attempted to start data collection, but data are not being received. Please ensure the OnlineDataHandler is receiving data.')
 
+        if not self.read_recording_setup():
+            return   # notch frequency or arm not chosen: stay on the configuration window
         self.get_settings()
         dpg.delete_item("__dc_configuration_window")
         self.cleanup_window("configuration")
@@ -224,6 +245,18 @@ class TransitionDataCollectionPanel:
         self.spawn_collection_thread = threading.Thread(target=self.spawn_collection_window, args=(media_list,))
         self.spawn_collection_thread.start()
         # self.spawn_collection_window(media_list)
+
+    def read_recording_setup(self):
+        """Notch frequency and arm chosen in the configuration window. False (with a message) if one is missing."""
+        chosen = read_setup_fields(self.config_notch_freq, self.config_arm)
+        if chosen is None:
+            return False
+        self.notch_freq, self.arm = chosen
+        return True
+
+    def recording_setup(self):
+        """Entries added to collection_details.json."""
+        return {"notch_freq": self.notch_freq, "arm": self.arm}
 
     def get_settings(self):
         self.num_reps = int(dpg.get_value("__dc_num_reps"))
@@ -258,6 +291,7 @@ class TransitionDataCollectionPanel:
             collection_details["classes"] = class_names
             collection_details["class_map"] = {index: name for index, name in enumerate(class_names)}
             collection_details["time"] = datetime.now().isoformat()
+            collection_details.update(self.recording_setup())
             collection_details["collection_order"] = []
 
             # make the media list for SGT progression
@@ -309,6 +343,7 @@ class TransitionDataCollectionPanel:
             collection_details["classes"] = [f.split('.')[0] for f in files]
             collection_details["class_map"] = {index: f.split('.')[0] for index, f in enumerate(files)}
             collection_details["time"] = datetime.now().isoformat()
+            collection_details.update(self.recording_setup())
             if not os.path.exists(self.output_folder):
                 os.makedirs(self.output_folder)
             with open(Path(self.output_folder, "collection_details.json").absolute().as_posix(), 'w') as f:

@@ -46,6 +46,13 @@ class CoreConfig:
     SMOOTH_WINDOW: int
     SMOOTH_METHOD: str
 
+    # ===== SIGNAL PROCESSING ===== #
+    NOTCH_FREQ: int = 60  # powerline frequency removed by the notch filter: 60 (America) or 50 (Europe)
+
+    # ===== DATA COLLECTION CHECKS ===== #
+    SHORT_FILE_MARGIN: float = 0.1  # s: a recorded file shorter than REP_TIME - this is incomplete and must be redone
+    ARM: Optional[str] = None       # arm wearing the bracelet: "left" or "right" (required by the SGT scripts, saved in the JSON)
+
     # ===== LOGGING CONFIGURATION ===== #
     LOG_LEVEL: str = "INFO"
     LOG_TO_FILE: bool = False

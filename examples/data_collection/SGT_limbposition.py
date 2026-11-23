@@ -1,6 +1,7 @@
 import time
 import os
 import re
+import csv
 import json
 import shutil
 import sys
@@ -19,6 +20,8 @@ from libemg._gui._utils import set_texture
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
 from emagerlib.utils.streamer_utils import get_emager_streamer
+from emagerlib.utils.recording_setup import (add_setup_fields, delete_setup_fields, read_setup_fields,
+                                             recording_setup_from_config)
 
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
@@ -99,14 +102,47 @@ def find_resume_point(data_folder, gesture_files, num_reps, modalities):
 class LimbPositionDataCollectionPanel(DataCollectionPanel):
     """Same as libemg's DataCollectionPanel, but shows the limb position to the right of the gesture.
     The limb position cycles with the repetition index: rep r -> lp(r % n_limb_positions).
-    If start_rep > 0, the collection resumes at that repetition."""
+    If start_rep > 0, the collection resumes at that repetition.
+    notch_freq (50/60 Hz) and arm ("left" / "right") come from the config, are shown (and can be corrected) in
+    the configuration window, and are saved in collection_details.json.
 
-    def __init__(self, *args, limb_textures=None, limb_width=250, start_rep=0, **kwargs):
+    Incomplete files: at the end of every rep (one round of all the gestures), any gesture whose EMG file is
+    shorter than its requested time - short_file_margin (s) is listed in a red warning. "Redo incomplete
+    gestures" records only those gestures again (overwriting their files) and checks them again, until they are
+    all long enough; "Keep them and continue" keeps the short files. Both are logged in collection_details.json
+    ("redos", "kept_short_files")."""
+
+    def __init__(self, *args, limb_textures=None, limb_width=250, start_rep=0, notch_freq=None,
+                 sampling_rate=2000, short_file_margin=0.5, arm=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.notch_freq = notch_freq
+        self.arm = arm
+        self.config_notch_freq, self.config_arm = notch_freq, arm   # None if missing from the config
+        self.sampling_rate = float(sampling_rate)
+        self.short_file_margin = float(short_file_margin)
+        self.durations = {}   # media index -> duration (s) of its saved EMG file
         self.limb_textures = limb_textures
         self.limb_width = limb_width
         self.limb_height = self.video_player_height
         self.start_rep = start_rep
+
+    def spawn_configuration_window(self):
+        # libemg's configuration window + the notch frequency and arm fields at the top
+        delete_setup_fields()
+        super().spawn_configuration_window()
+        first_item = dpg.get_item_children("__dc_configuration_window", 1)[0]
+        add_setup_fields(self.notch_freq, self.arm, parent="__dc_configuration_window", before=first_item)
+        dpg.add_separator(parent="__dc_configuration_window", before=first_item)
+
+    def start_callback(self):
+        chosen = read_setup_fields(self.config_notch_freq, self.config_arm)
+        if chosen is None:
+            return   # notch frequency or arm not chosen: stay on the configuration window
+        self.notch_freq, self.arm = chosen
+        if self.gui is not None:   # a new Start from the menu keeps these choices
+            self.gui.notch_freq, self.gui.arm = chosen
+        delete_setup_fields()
+        super().start_callback()
 
     def limb_index(self, rep_index):
         return rep_index % len(self.limb_textures)
@@ -124,6 +160,19 @@ class LimbPositionDataCollectionPanel(DataCollectionPanel):
             collection_details = json.load(f)
         # Store the rep -> limb position mapping alongside the collection details
         collection_details["limb_positions"] = {rep: f"lp{self.limb_index(rep)}" for rep in range(self.num_reps)}
+        collection_details["notch_freq"] = self.notch_freq
+        collection_details["arm"] = self.arm
+        previous_arm = previous_details.get("arm")
+        if previous_arm is not None and previous_arm != self.arm:
+            logger.warning(f"This session was started on the {previous_arm} arm, the config now says {self.arm}.")
+        collection_details["short_file_margin"] = self.short_file_margin
+        for key in ("redos", "kept_short_files"):   # keep the logs of a resumed session
+            if key in previous_details:
+                collection_details[key] = previous_details[key]
+        previous_notch = previous_details.get("notch_freq")
+        if previous_notch is not None and previous_notch != self.notch_freq:
+            logger.warning(f"This session was started with NOTCH_FREQ = {previous_notch} Hz, "
+                           f"the config now says {self.notch_freq} Hz.")
         if self.start_rep > 0:
             # Keep the original start time and log when the session was resumed
             collection_details["time"] = previous_details.get("time", collection_details["time"])
@@ -172,6 +221,18 @@ class LimbPositionDataCollectionPanel(DataCollectionPanel):
             with dpg.group(horizontal=True):
                 dpg.add_spacer(height=20,width=30)
                 dpg.add_progress_bar(tag="__dc_progress", default_value=0.0,width=self.video_player_width)
+            with dpg.group(horizontal=True, tag="__dc_short_group"):
+                dpg.add_spacer(height=20, width=30)
+                dpg.add_text("", tag="__dc_short_warning", color=(255, 95, 95),
+                             wrap=self.video_player_width + self.limb_width)
+            with dpg.group(horizontal=True, tag="__dc_short_buttons"):
+                dpg.add_spacer(height=20, width=30)
+                dpg.add_button(tag="__dc_redo_short_button", label="Redo incomplete gestures",
+                               callback=lambda: self.choose("redo"))
+                dpg.bind_item_theme("__dc_redo_short_button", self.get_redo_short_button_theme())
+                dpg.add_spacer(width=20)
+                dpg.add_button(tag="__dc_keep_short_button", label="Keep them and continue",
+                               callback=lambda: self.choose("keep"))
             with dpg.group(horizontal=True):
                 dpg.add_spacer(tag="__dc_stop_spacer", height=20, width=self.video_player_width/2+30 - (7*len("STOP REP"))/2)
                 dpg.add_button(tag="__dc_stop_button", label="STOP REP", callback=self.stop_rep_callback)
@@ -191,6 +252,8 @@ class LimbPositionDataCollectionPanel(DataCollectionPanel):
             dpg.hide_item(item="__dc_continue_button")
             dpg.hide_item(item="__dc_stop_button")
             dpg.hide_item(item="__dc_rest_group")
+            dpg.hide_item(item="__dc_short_group")
+            dpg.hide_item(item="__dc_short_buttons")
 
         self.run_sgt(media_list)
         # clean up the window
@@ -210,6 +273,15 @@ class LimbPositionDataCollectionPanel(DataCollectionPanel):
                     dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (210, 45, 45))
                     dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (240, 60, 60))
         return "__dc_stop_theme"
+
+    def get_redo_short_button_theme(self):
+        if not dpg.does_item_exist("__dc_redo_short_theme"):
+            with dpg.theme(tag="__dc_redo_short_theme"):
+                with dpg.theme_component(dpg.mvButton):
+                    dpg.add_theme_color(dpg.mvThemeCol_Button, (200, 120, 20))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (230, 145, 35))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (250, 165, 50))
+        return "__dc_redo_short_theme"
 
     def run_sgt(self, media_list):
         # Same as libemg's run_sgt, plus the emergency stop (STOP REP button)
@@ -238,8 +310,7 @@ class LimbPositionDataCollectionPanel(DataCollectionPanel):
                 dpg.set_value('__dc_rep', value=f"Rep {rep + 1} of {self.num_reps}")
                 continue
 
-            output_path = Path(self.output_folder, "C_" + str(media_list[self.i][2]) + "_R_" + str(media_list[self.i][3]) + ".csv").absolute().as_posix()
-            self.save_data(output_path)
+            self.save_media(media_list, self.i)
             last_rep = media_list[self.i][3]
             self.i = self.i+1
             is_final_media = self.i == len(media_list)
@@ -252,11 +323,140 @@ class LimbPositionDataCollectionPanel(DataCollectionPanel):
                 current_rep = media_list[self.i][3]
                 rep_is_finished = last_rep != current_rep
 
+            if rep_is_finished:
+                # Incomplete files of this rep must be redone (or explicitly kept) before going on
+                self.check_short_files(media_list, last_rep)
+
             # pause / redo goes here!
             if rep_is_finished  or (not self.auto_advance):
                 self.wait_for_continue(show_redo=True)
                 if not is_final_media:
                     dpg.set_value('__dc_rep', value=f"Rep {media_list[self.i][3] + 1} of {self.num_reps}")
+
+    # ----- Incomplete files -----
+    def output_path(self, media):
+        return Path(self.output_folder, f"C_{media[2]}_R_{media[3]}.csv").absolute().as_posix()
+
+    def save_media(self, media_list, index):
+        """Save the data just recorded for media_list[index] and remember the duration of its EMG file."""
+        self.save_data(self.output_path(media_list[index]))
+        mod = "emg" if "emg" in self.rep_buffer else next(iter(self.rep_buffer))
+        n_samples = sum(len(block) for block in self.rep_buffer[mod])
+        self.durations[index] = n_samples / self.sampling_rate
+
+    def min_duration(self, media):
+        """Shortest accepted file (s): the requested time of the gesture minus the margin."""
+        return media[-1] - self.short_file_margin
+
+    def short_files(self, media_list, rep):
+        return [j for j, media in enumerate(media_list)
+                if media[3] == rep and self.durations.get(j, 0.0) < self.min_duration(media)]
+
+    def check_short_files(self, media_list, rep):
+        """At the end of a rep: warn about the gestures whose file is too short and redo them until they are
+        long enough, unless the user chooses to keep them."""
+        attempt = 0
+        while True:
+            short = self.short_files(media_list, rep)
+            if not short:
+                if attempt:
+                    self.show_short_warning(f"Rep {rep + 1}: all gestures are now complete.", buttons=False)
+                return
+            names = ", ".join(f"{media_list[j][1]} ({self.durations.get(j, 0.0):.2f} s)" for j in short)
+            limit = min(self.min_duration(media_list[j]) for j in short)
+            message = (f"Rep {rep + 1}: {len(short)} incomplete gesture{'s' if len(short) > 1 else ''} "
+                       f"(less than {limit:.2f} s of data): {names}.\n"
+                       f"Redo {'them' if len(short) > 1 else 'it'} before the next rep (the files will be overwritten).")
+            logger.warning(message.replace("\n", " "))
+            self.show_short_warning(message, buttons=True)
+            if self.wait_for_choice() == "keep":
+                logger.warning(f"Rep {rep + 1}: kept {len(short)} incomplete file(s): {names}")
+                self.log_details("kept_short_files", [{"class": media_list[j][1], "rep": rep,
+                                                       "duration_s": round(self.durations.get(j, 0.0), 3)}
+                                                      for j in short])
+                self.show_short_warning("", buttons=False)
+                return
+            attempt += 1
+            self.show_short_warning(f"Redoing {len(short)} gesture{'s' if len(short) > 1 else ''} of rep {rep + 1}...",
+                                    buttons=False)
+            for k, j in enumerate(short, 1):
+                dpg.set_value('__dc_rep', value=f"Rep {rep + 1} of {self.num_reps} - redo {k}/{len(short)}")
+                previous = self.durations.get(j, 0.0)
+                if not self.record_again(media_list, j):
+                    break   # emergency stop: back to the warning (the gesture is still incomplete)
+                logger.info(f"Redo rep {rep + 1} {media_list[j][1]}: {previous:.2f} s -> {self.durations[j]:.2f} s")
+                self.log_details("redos", [{"class": media_list[j][1], "rep": rep, "time": datetime.now().isoformat(),
+                                            "previous_duration_s": round(previous, 3),
+                                            "new_duration_s": round(self.durations[j], 3)}])
+            dpg.set_value('__dc_rep', value=f"Rep {rep + 1} of {self.num_reps}")
+
+    def record_again(self, media_list, j):
+        """Rest + record media_list[j] again and overwrite its files. False if STOP REP was pressed."""
+        media = media_list[j]
+        self.stop_requested = False
+        self.rep_buffer = {mod: [] for mod in self.gui.online_data_handler.modalities}
+        self.rep_count = {mod: 0 for mod in self.gui.online_data_handler.modalities}
+        dpg.show_item(item="__dc_stop_button")
+        media[0].reset()
+        if self.rest_time:
+            self.play_collection_visual(media, active=False)
+            media[0].reset()
+        self.gui.online_data_handler.reset()
+        if not self.stop_requested:
+            self.play_collection_visual(media, active=True)
+        dpg.hide_item(item="__dc_stop_button")
+        if self.stop_requested:
+            self.stop_requested = False
+            dpg.set_value("__dc_progress", value=0.0)
+            logger.info(f"Emergency stop during the redo of {media[1]}: nothing saved.")
+            return False
+        self.save_media(media_list, j)
+        return True
+
+    def show_short_warning(self, message, buttons):
+        dpg.set_value("__dc_short_warning", message)
+        dpg.configure_item("__dc_short_group", show=bool(message))
+        dpg.configure_item("__dc_short_buttons", show=buttons)
+
+    def choose(self, choice):
+        self.choice = choice
+
+    def wait_for_choice(self):
+        """Wait until "Redo incomplete gestures" or "Keep them and continue" is pressed."""
+        self.choice = None
+        while self.choice is None:
+            time.sleep(0.1)
+            dpg.configure_app(manual_callback_management=True)
+            dpg.run_callbacks(dpg.get_callback_queue())
+        dpg.configure_app(manual_callback_management=False)
+        dpg.configure_item("__dc_short_buttons", show=False)
+        return self.choice
+
+    def log_details(self, key, entries):
+        """Append entries to the list `key` of collection_details.json."""
+        details_path = Path(self.output_folder, "collection_details.json")
+        try:
+            with open(details_path, "r") as f:
+                details = json.load(f)
+            details[key] = details.get(key, []) + entries
+            with open(details_path, "w") as f:
+                json.dump(details, f)
+        except (OSError, ValueError) as error:
+            logger.warning(f"Could not log {key} in {details_path}: {error}")
+
+    def save_data(self, filename):
+        # Same as libemg's save_data, but splits only the file extension:
+        # libemg uses filename.split('.'), which breaks when a folder name contains a dot (e.g. "EMaGer_V3.6")
+        base, extension = os.path.splitext(filename)
+        for mod in self.rep_buffer:
+            mod_filename = f"{base}_{mod}{extension}"
+            data = np.vstack(self.rep_buffer[mod])[::-1,:]
+            if data.size == 0:
+                raise ConnectionError('Attempting to store data, but received 0 samples during repetition, suggesting that the data stream from the device has been interrupted. Please check the device connection and verify that previous files are not missing samples.')
+            with open(mod_filename, "w", newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+                for row in data:
+                    writer.writerow(row)
 
     def wait_for_continue(self, show_redo=True):
         # Show redo / continue buttons and wait until one is pressed
@@ -284,6 +484,14 @@ class LimbPositionDataCollectionPanel(DataCollectionPanel):
         if new_rest_time != self.rest_time:
             logger.info(f"Rest between gestures changed from {self.rest_time} s to {new_rest_time} s.")
             self.rest_time = new_rest_time
+
+    def continue_collection_callback(self):
+        self.show_short_warning("", buttons=False)
+        super().continue_collection_callback()
+
+    def redo_collection_callback(self):
+        self.show_short_warning("", buttons=False)
+        super().redo_collection_callback()
 
     def stop_rep_callback(self):
         self.stop_requested = True
@@ -352,11 +560,16 @@ class LimbPositionDataCollectionPanel(DataCollectionPanel):
 class LimbPositionGUI(GUI):
     """libemg GUI that uses LimbPositionDataCollectionPanel for data collection."""
 
-    def __init__(self, *args, limb_textures=None, limb_width=250, start_rep=0, **kwargs):
+    def __init__(self, *args, limb_textures=None, limb_width=250, start_rep=0, notch_freq=None,
+                 sampling_rate=2000, short_file_margin=0.5, arm=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.arm = arm
         self.limb_textures = limb_textures
         self.limb_width = limb_width
         self.start_rep = start_rep
+        self.notch_freq = notch_freq
+        self.sampling_rate = sampling_rate
+        self.short_file_margin = short_file_margin
 
     def _data_collection_callback(self):
         import inspect
@@ -367,8 +580,22 @@ class LimbPositionGUI(GUI):
                                                    video_player_height=self.video_player_height,
                                                    limb_textures=self.limb_textures,
                                                    limb_width=self.limb_width,
-                                                   start_rep=self.start_rep)
+                                                   start_rep=self.start_rep,
+                                                   notch_freq=self.notch_freq,
+                                                   sampling_rate=self.sampling_rate,
+                                                   short_file_margin=self.short_file_margin,
+                                                   arm=self.arm)
         self.dcp.spawn_configuration_window()
+
+
+def get_short_file_margin(cfg):
+    """SHORT_FILE_MARGIN of the config (s, default 0.5): files shorter than REP_TIME - this are redone."""
+    margin = getattr(cfg, "SHORT_FILE_MARGIN", None)
+    margin = 0.5 if margin is None else float(margin)
+    if margin < 0:
+        raise ValueError(f"SHORT_FILE_MARGIN must be >= 0 s, got {margin}")
+    logger.info(f"Files shorter than REP_TIME - {margin} s will have to be redone.")
+    return margin
 
 
 def parse_args(argv=None):
@@ -417,9 +644,12 @@ def main(argv=None):
         "auto_advance": True
     }
 
+    notch_freq, arm = recording_setup_from_config(cfg)   # None if missing: chosen in the configuration window
     gui = LimbPositionGUI(odh, args=gui_args, debug=False, width=1000, height=800,
                           gesture_width=500, gesture_height=gesture_height,
-                          limb_textures=limb_textures, limb_width=limb_width)
+                          limb_textures=limb_textures, limb_width=limb_width,
+                          notch_freq=notch_freq, sampling_rate=cfg.SAMPLING,
+                          short_file_margin=get_short_file_margin(cfg), arm=arm)
     gui.download_gestures(cfg.CLASSES, media_folder, download_gifs=False)
 
     dataset_path = os.path.abspath(data_folder)

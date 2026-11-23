@@ -25,11 +25,14 @@ CLASSES = [1,2,3,4,5,6,7,8,14,26,30]
 NUM_REPS = 20
 REP_TIME = 3
 REST_TIME = 1
+SHORT_FILE_MARGIN = 0.1  # s: SGT_limbposition asks to redo any file shorter than REP_TIME - SHORT_FILE_MARGIN
+ARM = "right"  # arm wearing the bracelet: "left" or "right". Saved in collection_details.json by the SGT scripts.
 
 # ===== Data acquisition ===== #
 EMAGER_VERSION = "v3.0"  # EMaGer device version ("v1.0", "v1.1", or "v3.0")
 SAMPLING = 2000
 FILTER = False
+NOTCH_FREQ = 60  # powerline frequency for the notch filter: 60 Hz (America) or 50 Hz (Europe). Saved with the data.
 VIRTUAL = False
 PORT = None
 

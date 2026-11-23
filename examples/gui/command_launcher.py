@@ -57,7 +57,7 @@ QUICK_ACTIONS = [
         "label": "Live Heatmap",
         "kind": "script",
         "target": PROJECT_ROOT.parent / "visualisation" / "live_heatmap.py",
-        "use_config": False,
+        "use_config": True,
         "extra_args": "",
     },
     {

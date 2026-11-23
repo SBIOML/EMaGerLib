@@ -3,6 +3,7 @@ import logging
 
 from emagerlib import ROOT_EMAGERLIB
 from emagerlib.config.load_config import load_config
+from emagerlib.utils.notch import notch_filter_dictionary as get_notch_dictionary
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
 
 
@@ -50,7 +51,7 @@ def prepare_data(dataset_folder, cfg):
 
     filt = Filter(cfg.SAMPLING)
 
-    notch_filter_dictionary = {"name": "notch", "cutoff": 60, "bandwidth": 3}
+    notch_filter_dictionary = get_notch_dictionary(cfg)
     filt.install_filters(notch_filter_dictionary)
 
     bandpass_filter_dictionary = {"name": "bandpass", "cutoff": [20, 450], "order": 4}

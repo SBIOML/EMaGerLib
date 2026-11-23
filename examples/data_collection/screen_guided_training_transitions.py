@@ -8,6 +8,7 @@ import logging
 
 from emagerlib.config.load_config import load_config
 from emagerlib.utils.arg_parser import create_parser, setup_logging, save_config_if_requested
+from emagerlib.utils.recording_setup import recording_setup_from_config
 from emagerlib.utils.streamer_utils import get_emager_streamer
 from emagerlib.utils.transition_sgt import use_transition_panel
 
@@ -50,21 +51,28 @@ def main(argv=None):
     odh = OnlineDataHandler(shared_memory_items=smi)
     logger.info("Data handler created")
 
+    # cfg.DATAFOLDER is a read-only property, so the (possibly renamed) output folder is tracked here
+    data_folder = str(cfg.DATAFOLDER)
+
+    notch_freq, arm = recording_setup_from_config(cfg)   # None if missing: chosen in the GUI
     gui_args = {
         "online_data_handler": odh,
         "media_folder": media_folder,
-        "data_folder": cfg.DATAFOLDER,
+        "data_folder": data_folder,
         "num_reps": cfg.NUM_REPS,
         "rep_time": cfg.REP_TIME,
         "rest_time": cfg.REST_TIME,
         "auto_advance": True,
-        "transitions": True
+        "transitions": True,
+        # shown (and editable) in the configuration window, saved in collection_details.json
+        "notch_freq": notch_freq,
+        "arm": arm,
     }
     
     gui = GUI(odh, args=gui_args, debug=False, width=900, height=800)
     gui.download_gestures(cfg.CLASSES, media_folder, download_gifs=False)
 
-    dataset_path = os.path.abspath(str(cfg.DATAFOLDER))
+    dataset_path = os.path.abspath(data_folder)
 
     # Ensure folder exists
     if not os.path.exists(dataset_path):
@@ -97,14 +105,9 @@ def main(argv=None):
                     candidate = f"{new_path}_{i}"
                     i += 1
                 os.makedirs(candidate, exist_ok=True)
-                cfg.DATAFOLDER = candidate
-                gui_args["data_folder"] = cfg.DATAFOLDER
-                # Try to update GUI-held args if possible
-                try:
-                    setattr(gui, "args", gui_args)
-                except Exception:
-                    pass
-                logger.info(f"Dataset directory renamed to '{cfg.DATAFOLDER}'. Using that path for this run.")
+                data_folder = candidate
+                gui_args["data_folder"] = data_folder  # the GUI reads this same dict
+                logger.info(f"Dataset directory renamed to '{data_folder}'. Using that path for this run.")
                 break
             elif choice == "c" or choice == "cancel":
                 logger.info("Operation cancelled. Exiting.")
@@ -115,9 +118,10 @@ def main(argv=None):
         # Ensure folder exists (redundant safe-guard)
         os.makedirs(dataset_path, exist_ok=True)
     
+    # The notch frequency and the arm chosen in the configuration window are saved in collection_details.json
     gui.start_gui()
 
-    logger.info(f"Data saved in: {cfg.DATAFOLDER}")
+    logger.info(f"Data saved in: {data_folder}")
     return 0
     
 if __name__ == "__main__":

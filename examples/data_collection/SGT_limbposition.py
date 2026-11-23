@@ -26,8 +26,9 @@ from emagerlib.utils.recording_setup import (add_setup_fields, delete_setup_fiel
 # Default configuration path
 DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config_examples" / "base_config_example.py"
 
-# Default limb position images folder (lp0.png, lp1.png, ...). Can be overridden with cfg.LIMB_POSITIONS_PATH
-DEFAULT_LIMB_POSITIONS_PATH = Path(r"C:\Users\felix\OneDrive\Documents\phD\Projet\Data_collection_paper2\limb_positions")
+# Limb position images (lp0.png, lp1.png, ...), shipped with EMaGerLib next to this script.
+# Can be overridden with LIMB_POSITIONS_PATH in the config (e.g. for other limb positions).
+DEFAULT_LIMB_POSITIONS_PATH = Path(__file__).parent / "limb_positions"
 
 # Data files written by libemg: C_<class>_R_<rep>_<modality>.csv
 DATA_FILE_PATTERN = re.compile(r"^C_(\d+)_R_(\d+)_(.+)\.csv$")

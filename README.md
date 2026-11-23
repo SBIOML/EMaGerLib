@@ -93,16 +93,16 @@ source venv/bin/activate
 pip install -e .
 ```
 
-This installs the package with all dependencies — including the [`emager-v3` branch of the libemg fork](https://github.com/Michiboi29/libemg-fork/tree/emager-v3) (the current default/stable source for EMaGerLib). The fork is required because `emagerlib` uses `emagerv3_streamer`, which is only present in the fork. Console commands (`emager`, `emager-gui`, `emager-run-tests`) are made available globally.
+This installs the package with all dependencies — including the libemg fork pinned at the [`emagerlib-v1.3.0` tag](https://github.com/Michiboi29/libemg-fork/tree/emagerlib-v1.3.0) of its `emager-v3` branch (the current default/stable source for EMaGerLib). The tag guarantees that EMaGerLib and the streamer always change together. The fork is required because `emagerlib` uses `emagerv3_streamer`, which is only present in the fork. Console commands (`emager`, `emager-gui`, `emager-run-tests`) are made available globally.
 
 **Optional: switch to a different libemg source**
 
 Extras can't override a URL-pinned base dependency, so source-switching is a manual two-step (`uninstall` then `install`). Pick **one** of the options below:
 
 ```bash
-# Option 1 — libemg-fork @ emager-v3  (default/stable, what `pip install -e .` already gives you)
+# Option 1 — libemg-fork @ emagerlib-v1.3.0  (default/stable tag, what `pip install -e .` already gives you)
 pip uninstall libemg -y
-pip install "libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emager-v3"
+pip install "libemg @ git+https://github.com/Michiboi29/libemg-fork.git@emagerlib-v1.3.0"
 
 # Option 2 — libemg-fork @ emager-v3-update  (in-progress fork branch with newer changes)
 pip uninstall libemg -y
@@ -118,6 +118,12 @@ pip install "libemg @ git+https://github.com/libemg/libemg.git@latest"
 ```
 
 > **Heads up**: only the two fork options (1, 2) provide `emagerv3_streamer`. Options 3 and 4 will break any code path that depends on it (currently `emagerlib/utils/streamer_utils.py` and the v3 visualization examples).
+
+> **IMU byte order (EMaGerLib ≥ 1.3.0)**: the EMaGer v3 streamer now decodes IMU samples as little-endian int16, so IMU values arrive correct (accelerometer ≈ 1000 mg on one axis when the armband lies still). Do **not** call `.byteswap()` on live IMU data. IMU files recorded with an older version (`*_imu.csv`) are byte-swapped; fix them once when loading:
+>
+> ```python
+> imu = np.loadtxt(path, delimiter=",", ndmin=2).astype(np.int16).byteswap()
+> ```
 
 **Local libemg development**
 

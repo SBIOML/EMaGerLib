@@ -292,8 +292,9 @@ class SharedMemoryConsumerVStackIMU(QtCore.QThread):
                     imu_buf = vals[MOD_IMU]  # expected shape: (H, 6)
                     chunk = self._take_new_from_vstack_buffer(imu_buf, new_imu)  # (N,6)
 
-                    # Swap the two bytes of every int16 IMU value
-                    chunk = np.asarray(chunk, dtype=np.int16).byteswap()
+                    # IMU arrives already decoded as little-endian int16 by the streamer:
+                    # do NOT byteswap here (libemg-fork >= emagerlib-v1.3.0)
+                    chunk = np.asarray(chunk, dtype=np.int16)
 
                     block_ch_time = chunk.T.astype(np.float32, copy=False)  # (6,N)
 

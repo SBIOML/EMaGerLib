@@ -33,6 +33,7 @@ Keys:
 Gesture pictures are read from MEDIA_PATH of the config (the folder where libEMG downloads them).
 """
 
+import os
 import time
 import logging
 from collections import deque
@@ -526,6 +527,18 @@ class FeatureProjectionWindow(QtWidgets.QMainWindow):
             f"[SPACE] freeze/unfreeze   [R] reset   [1-9, 0] record {LABEL_SECONDS} s of a gesture   [Esc] stop   [P] pictures")
 
 
+def make_app():
+    """QApplication with per-monitor high-DPI scaling and exact scale factors (e.g. 1.5).
+    Without it (Qt 5 default), on a screen whose scale differs from the main one (e.g. laptop at 150%,
+    external monitor at 100%), the points / heatmap are drawn at a different scale than their axes.
+    Same settings as pyqtgraph's own pg.mkQApp(). Must run before the QApplication is created."""
+    os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
+    QtWidgets.QApplication.setHighDpiScaleFactorRoundingPolicy(
+        QtCore.Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+    QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps)
+    return QtWidgets.QApplication([])
+
+
 def parse_args(argv=None):
     parser = create_parser(
         description="Live 2D projection of EMG features (adaptive PCA)",
@@ -551,7 +564,7 @@ def main(argv=None):
     odh = OnlineDataHandler(shared_memory_items=smi_emg)
     logger.info("Data handler created")
 
-    app = QtWidgets.QApplication([])
+    app = make_app()
     win = FeatureProjectionWindow(odh, fs=cfg.SAMPLING, notch_freq=get_notch_freq(cfg),
                                   media_path=getattr(cfg, "MEDIA_PATH", None))
     win.show()
